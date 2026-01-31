@@ -46,22 +46,4 @@
     color: var(--primary-foreground);
   }
 
-  .status-badge {
-    @apply text-[9px] font-medium px-1.5 py-0.5 rounded-full leading-none;
   }
-
-  .status-draft {
-    background-color: var(--muted);
-    color: var(--muted-foreground);
-  }
-
-  .status-ready {
-    background-color: var(--primary);
-    color: var(--primary-foreground);
-  }
-
-  .status-sold {
-    background-color: var(--secondary);
-    color: var(--secondary-foreground);
-  }
-}

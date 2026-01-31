@@ -15,7 +15,7 @@ logger.info("[GEMINI] Gemini API configured")
 PROMPT = """Analiziraj fotografiju proizvoda. Vrati odgovor kao JSON objekat sa sljedećim poljima:
 
 {
-  "naslov": "Kratak naslov (max 50 znakova)",
+  "naslov": "Kratak naslov (maksimalno 3 riječi)",
   "kategorija": "odjeca|obuca|oprema|igracke",
   "brend": "Ime brenda ili null ako nije vidljivo",
   "velicina": "Veličina ili null ako nije vidljiva",
@@ -23,6 +23,7 @@ PROMPT = """Analiziraj fotografiju proizvoda. Vrati odgovor kao JSON objekat sa 
 }
 
 Pravila:
+- Naslov: MORA biti maksimalno 3 riječi, npr. "Zimska jakna Nike" ili "Tenisice Adidas"
 - Cijena: realna hrvatska cijena za rabljeno stanje
 - Vrati SAMO JSON, bez dodatnog teksta"""
 
@@ -68,3 +69,42 @@ async def analyze_image(image_path: str) -> AIAnalysis:
     )
     logger.info(f"[GEMINI] Analysis complete: {analysis}")
     return analysis
+
+
+async def generate_post_description(items: list[dict]) -> str:
+    """Generate a Facebook post description based on items."""
+    logger.info(f"[GEMINI] Generating post description for {len(items)} items")
+
+    model = genai.GenerativeModel("gemini-2.5-flash-lite")
+
+    # Build item details for the prompt
+    items_text = ""
+    for i, item in enumerate(items, 1):
+        items_text += f"\n{i}. {item.get('title', 'Artikl')}"
+        if item.get('brand'):
+            items_text += f" - {item['brand']}"
+        if item.get('size'):
+            items_text += f", veličina {item['size']}"
+        if item.get('condition'):
+            items_text += f", stanje: {item['condition']}"
+        if item.get('price'):
+            items_text += f", cijena: {item['price']}€"
+
+    prompt = f"""Napiši kratak, privlačan opis za Facebook post za prodaju sljedećih artikala:
+{items_text}
+
+Pravila:
+- Piši na hrvatskom jeziku
+- Budi prijateljski i pozitivan
+- Spomeni ključne detalje (brend, veličinu, stanje)
+- Dodaj poziv na akciju (npr. "Javite se u inbox!")
+- Maksimalno 3-4 rečenice
+- Ne koristi hashtage
+- Ne ponavljaj cijene, samo ih spomeni ako ima više artikala
+
+Vrati SAMO tekst opisa, bez dodatnih objašnjenja."""
+
+    response = model.generate_content(prompt)
+    description = response.text.strip()
+    logger.info(f"[GEMINI] Generated description: {description[:100]}...")
+    return description

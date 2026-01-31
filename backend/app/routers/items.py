@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Header, File, UploadFile, Form
 from typing import Optional, List
 from app.database import supabase
-from app.models import Item, ItemCreate, AIAnalysis
-from app.services.storage import upload_image
+from app.models import Item, ItemCreate, AIAnalysis, UpdateItemsStatusRequest
+from app.services.storage import upload_image, delete_image
 import base64
 import tempfile
 import os
@@ -116,7 +116,6 @@ async def create_item(
         "material": material,
         "color": color,
         "price": float(price),
-        "status": "draft",
         "images": image_urls,
     }
 
@@ -171,7 +170,6 @@ async def update_item(
     material: Optional[str] = Form(None),
     color: Optional[str] = Form(None),
     price: Optional[float] = Form(None),
-    status: Optional[str] = Form(None),
     authorization: Optional[str] = Header(None),
 ) -> Item:
     """Update item."""
@@ -197,8 +195,6 @@ async def update_item(
         update_data["color"] = color
     if price is not None:
         update_data["price"] = float(price)
-    if status is not None:
-        update_data["status"] = status
 
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -312,3 +308,195 @@ async def update_item_image(
 
     logger.info(f"[UPDATE_IMAGE] Item updated successfully")
     return Item(**update_response.data[0])
+
+
+@router.delete("/items/{item_id}/image/{image_index}", response_model=Item)
+async def delete_item_image(
+    item_id: str,
+    image_index: int,
+    authorization: Optional[str] = Header(None),
+) -> Item:
+    """Delete a specific image from an item."""
+    user_id = await get_current_user(authorization)
+    logger.info(f"[DELETE_IMAGE] Deleting image {image_index} from item {item_id}")
+
+    # Get current item
+    item_response = (
+        supabase.table("items")
+        .select("*")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    if not item_response.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    current_item = item_response.data[0]
+    current_images = current_item.get("images", [])
+
+    if image_index < 0 or image_index >= len(current_images):
+        raise HTTPException(status_code=400, detail="Invalid image index")
+
+    # Get the image URL to delete from storage
+    image_url = current_images[image_index]
+
+    # Remove from storage
+    await delete_image(image_url, user_id)
+    logger.info(f"[DELETE_IMAGE] Deleted image from storage: {image_url}")
+
+    # Remove from images array
+    new_images = [img for i, img in enumerate(current_images) if i != image_index]
+
+    # Update item in database
+    update_response = (
+        supabase.table("items")
+        .update({"images": new_images})
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    if not update_response.data:
+        raise HTTPException(status_code=500, detail="Failed to update item")
+
+    logger.info(f"[DELETE_IMAGE] Item updated, {len(new_images)} images remaining")
+    return Item(**update_response.data[0])
+
+
+@router.post("/items/{item_id}/images", response_model=Item)
+async def add_item_images(
+    item_id: str,
+    images: List[UploadFile] = File(...),
+    authorization: Optional[str] = Header(None),
+) -> Item:
+    """Add new images to an existing item."""
+    user_id = await get_current_user(authorization)
+    logger.info(f"[ADD_IMAGES] Adding {len(images)} images to item {item_id}")
+
+    # Get current item
+    item_response = (
+        supabase.table("items")
+        .select("*")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    if not item_response.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    current_item = item_response.data[0]
+    current_images = current_item.get("images", [])
+
+    # Upload new images
+    new_urls = []
+    for idx, image_file in enumerate(images):
+        logger.info(f"[ADD_IMAGES] Processing image {idx + 1}/{len(images)}: {image_file.filename}")
+
+        # Validate file type
+        if not image_file.content_type or not image_file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="All files must be images")
+
+        content = await image_file.read()
+
+        if len(content) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File too large (max 10MB)")
+
+        # Upload to Supabase Storage
+        timestamp = datetime.now().isoformat()
+        filename = f"{user_id}/{item_id}/{timestamp}_{idx}.jpg"
+
+        supabase.storage.from_("item-images").upload(filename, content)
+        public_url = supabase.storage.from_("item-images").get_public_url(filename)
+        new_urls.append(public_url)
+        logger.info(f"[ADD_IMAGES] Uploaded: {public_url}")
+
+    # Update images array
+    updated_images = current_images + new_urls
+
+    # Update item in database
+    update_response = (
+        supabase.table("items")
+        .update({"images": updated_images})
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    if not update_response.data:
+        raise HTTPException(status_code=500, detail="Failed to update item")
+
+    logger.info(f"[ADD_IMAGES] Item updated, now has {len(updated_images)} images")
+    return Item(**update_response.data[0])
+
+
+@router.delete("/items/{item_id}")
+async def delete_item(
+    item_id: str,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Delete an item and all its images."""
+    user_id = await get_current_user(authorization)
+    logger.info(f"[DELETE_ITEM] Deleting item {item_id}")
+
+    # Get item to find images
+    item_response = (
+        supabase.table("items")
+        .select("*")
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    if not item_response.data:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    item = item_response.data[0]
+
+    # Delete all images from storage
+    for image_url in item.get("images", []):
+        try:
+            await delete_image(image_url, user_id)
+        except Exception as e:
+            logger.warning(f"[DELETE_ITEM] Failed to delete image {image_url}: {e}")
+
+    # Delete item from database
+    delete_response = (
+        supabase.table("items")
+        .delete()
+        .eq("id", item_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+
+    logger.info(f"[DELETE_ITEM] Item {item_id} deleted successfully")
+    return {"success": True}
+
+
+@router.patch("/items/status")
+async def update_items_status(
+    request: UpdateItemsStatusRequest,
+    authorization: Optional[str] = Header(None),
+) -> dict:
+    """Update status for multiple items."""
+    user_id = await get_current_user(authorization)
+    logger.info(f"[UPDATE_STATUS] Updating {len(request.item_ids)} items to status: {request.status}")
+
+    if request.status not in ["draft", "active", "sold"]:
+        raise HTTPException(status_code=400, detail="Invalid status. Must be: draft, active, or sold")
+
+    updated_count = 0
+    for item_id in request.item_ids:
+        response = (
+            supabase.table("items")
+            .update({"status": request.status})
+            .eq("id", item_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+        if response.data:
+            updated_count += 1
+
+    logger.info(f"[UPDATE_STATUS] Updated {updated_count} items")
+    return {"success": True, "updated_count": updated_count}

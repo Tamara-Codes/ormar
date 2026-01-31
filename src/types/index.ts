@@ -1,5 +1,3 @@
-export type ItemStatus = 'draft' | 'ready' | 'sold'
-
 export type Category = 'odjeca' | 'obuca' | 'oprema' | 'igracke'
 
 export type Condition = 'novo' | 'kao_novo' | 'dobro' | 'koristeno'
@@ -11,12 +9,6 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   obuca: 'Obuća',
   oprema: 'Oprema',
   igracke: 'Igračke',
-}
-
-export const STATUS_LABELS: Record<ItemStatus, string> = {
-  draft: 'Nacrt',
-  ready: 'Spremno',
-  sold: 'Prodano',
 }
 
 export const CONDITION_LABELS: Record<Condition, string> = {
@@ -33,6 +25,8 @@ export const MATERIAL_LABELS: Record<Material, string> = {
   mješavina: 'Mješavina',
 }
 
+export type ItemStatus = 'draft' | 'active' | 'sold'
+
 export interface Item {
   id: string
   title: string
@@ -44,8 +38,8 @@ export interface Item {
   condition: Condition
   material?: Material
   color?: string
-  status: ItemStatus
   images: string[]
+  status: ItemStatus
   created_at: string
   updated_at: string
 }
@@ -76,5 +70,23 @@ export interface FilterState {
   brands: string[]
   conditions: Condition[]
   materials: Material[]
-  statuses: ItemStatus[]
+}
+
+export interface Post {
+  id: string
+  item_ids: string[]
+  description?: string
+  collage_url?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Publication {
+  id: string
+  post_id?: string
+  item_ids: string[]
+  fb_page_name: string
+  description?: string
+  collage_url?: string
+  published_at: string
 }

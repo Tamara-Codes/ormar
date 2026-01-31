@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Pencil, ChevronLeft, ChevronRight, Sparkles, Loader } from 'lucide-react'
+import { ArrowLeft, Pencil, ChevronLeft, ChevronRight, Sparkles, Loader, Trash2, Plus } from 'lucide-react'
 import {
   Select,
   SelectContent,
@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select'
-import { getItem, updateItem, removeBackground, updateItemImage } from '../lib/api'
+import { getItem, updateItem, removeBackground, updateItemImage, deleteItemImage, addItemImages } from '../lib/api'
 import type { Item, Category, Condition, Material } from '../types'
 import {
   CATEGORY_LABELS,
@@ -26,6 +26,10 @@ export function ItemDetailPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [isRemovingBg, setIsRemovingBg] = useState(false)
+  const [isDeletingImage, setIsDeletingImage] = useState(false)
+  const [isAddingImages, setIsAddingImages] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Edit form state
   const [editData, setEditData] = useState({
@@ -121,6 +125,46 @@ export function ItemDetailPage() {
     }
   }
 
+  const handleDeleteImage = async () => {
+    if (!item || !id || item.images.length === 0) return
+
+    setShowDeleteConfirm(false)
+    setIsDeletingImage(true)
+    try {
+      const updatedItem = await deleteItemImage(id, currentImageIndex)
+      setItem(updatedItem)
+      // Adjust index if we deleted the last image
+      if (currentImageIndex >= updatedItem.images.length && updatedItem.images.length > 0) {
+        setCurrentImageIndex(updatedItem.images.length - 1)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete image')
+    } finally {
+      setIsDeletingImage(false)
+    }
+  }
+
+  const handleAddImages = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!item || !id) return
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+
+    // Reset input
+    e.target.value = ''
+
+    setIsAddingImages(true)
+    try {
+      const updatedItem = await addItemImages(id, files)
+      setItem(updatedItem)
+      // Navigate to the first new image
+      setCurrentImageIndex(updatedItem.images.length - files.length)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add images')
+    } finally {
+      setIsAddingImages(false)
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -153,9 +197,9 @@ export function ItemDetailPage() {
   }
 
   return (
-    <div className="h-screen bg-background overflow-hidden">
+    <div className={`min-h-screen bg-background ${isEditing ? 'overflow-auto' : 'overflow-hidden h-screen'}`}>
       {/* Header */}
-      <header className="h-14 flex-shrink-0 bg-background border-b border-border">
+      <header className="sticky top-0 z-10 h-14 flex-shrink-0 bg-background border-b border-border">
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
             <ArrowLeft className="w-6 h-6" />
@@ -172,9 +216,9 @@ export function ItemDetailPage() {
         </div>
       </header>
 
-      <main className="flex flex-col flex-1 overflow-hidden">
+      <main className={`flex flex-col flex-1 ${isEditing ? '' : 'overflow-hidden'}`}>
         {/* Image Gallery */}
-        <div className="relative bg-black h-[40vh] flex-shrink-0">
+        <div className={`relative bg-black flex-shrink-0 ${isEditing ? 'h-[25vh]' : 'h-[40vh]'}`}>
           {item.images.length > 0 ? (
             <>
               <img
@@ -182,6 +226,41 @@ export function ItemDetailPage() {
                 alt={item.title}
                 className="w-full h-full object-contain"
               />
+              {/* Edit mode buttons */}
+              {isEditing && (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={handleAddImages}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isAddingImages}
+                    className="absolute top-2 left-2 bg-primary hover:bg-primary/90 text-white p-2 rounded-full disabled:opacity-50 transition-colors"
+                  >
+                    {isAddingImages ? (
+                      <Loader className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Plus className="w-5 h-5" />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    disabled={isDeletingImage || item.images.length === 0}
+                    className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white p-2 rounded-full disabled:opacity-50 transition-colors"
+                  >
+                    {isDeletingImage ? (
+                      <Loader className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-5 h-5" />
+                    )}
+                  </button>
+                </>
+              )}
               {item.images.length > 1 && (
                 <>
                   <button
@@ -212,7 +291,32 @@ export function ItemDetailPage() {
             </>
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-muted">
-              <span className="text-muted-foreground text-sm">Nema slike</span>
+              {isEditing ? (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={handleAddImages}
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isAddingImages}
+                    className="flex flex-col items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {isAddingImages ? (
+                      <Loader className="w-8 h-8 animate-spin" />
+                    ) : (
+                      <Plus className="w-8 h-8" />
+                    )}
+                    <span className="text-sm">Dodaj fotografiju</span>
+                  </button>
+                </>
+              ) : (
+                <span className="text-muted-foreground text-sm">Nema slike</span>
+              )}
             </div>
           )}
         </div>
@@ -236,7 +340,7 @@ export function ItemDetailPage() {
         )}
 
         {/* Content */}
-        <div className="px-4 py-3 flex-shrink-0">
+        <div className={`px-4 py-3 ${isEditing ? 'pb-8' : 'flex-shrink-0'}`}>
           {isEditing ? (
             /* Edit Mode */
             <div className="space-y-4">
@@ -418,6 +522,29 @@ export function ItemDetailPage() {
           )}
         </div>
       </main>
+
+      {/* Delete confirmation popup */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-background rounded-lg p-4 mx-4 max-w-sm w-full shadow-lg">
+            <p className="text-center mb-4">Jeste li sigurni da želite obrisati ovu fotografiju?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-2 border border-border rounded-lg font-medium hover:bg-muted transition-colors"
+              >
+                Odustani
+              </button>
+              <button
+                onClick={handleDeleteImage}
+                className="flex-1 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors"
+              >
+                Obriši
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

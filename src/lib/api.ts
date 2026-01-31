@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import type { AIAnalysis, Item, ItemFormData } from '../types'
+import type { AIAnalysis, Item, ItemFormData, Post, ItemStatus, Publication } from '../types'
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
@@ -198,6 +198,226 @@ export async function updateItemImage(
 
   if (!response.ok) {
     throw new Error('Failed to update image')
+  }
+
+  return response.json()
+}
+
+export async function deleteItemImage(
+  itemId: string,
+  imageIndex: number
+): Promise<Item> {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE}/api/items/${itemId}/image/${imageIndex}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to delete image')
+  }
+
+  return response.json()
+}
+
+export async function deleteItem(itemId: string): Promise<void> {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE}/api/items/${itemId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to delete item')
+  }
+}
+
+export async function createCollage(imageUrls: string[], columns: number = 2): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/api/create-collage`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      image_urls: imageUrls,
+      columns: columns,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to create collage')
+  }
+
+  return response.blob()
+}
+
+export async function addItemImages(
+  itemId: string,
+  images: File[]
+): Promise<Item> {
+  const token = await getAuthToken()
+  const formData = new FormData()
+
+  images.forEach((file) => {
+    formData.append('images', file)
+  })
+
+  const response = await fetch(`${API_BASE}/api/items/${itemId}/images`, {
+    method: 'POST',
+    body: formData,
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to add images')
+  }
+
+  return response.json()
+}
+
+export async function generatePostDescription(items: Item[]): Promise<string> {
+  const response = await fetch(`${API_BASE}/api/generate-description`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      items: items.map(item => ({
+        title: item.title,
+        brand: item.brand,
+        size: item.size,
+        condition: item.condition,
+        price: item.price,
+        category: item.category,
+      })),
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to generate description')
+  }
+
+  const data = await response.json()
+  return data.description
+}
+
+export async function uploadCollage(collageBlob: Blob): Promise<string> {
+  const formData = new FormData()
+  formData.append('image', collageBlob, 'collage.jpg')
+
+  const response = await fetch(`${API_BASE}/api/upload-collage`, {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to upload collage')
+  }
+
+  const data = await response.json()
+  return data.url
+}
+
+export async function getSavedPosts(): Promise<Post[]> {
+  const response = await fetch(`${API_BASE}/api/posts`)
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch saved posts')
+  }
+
+  const data = await response.json()
+  return data.posts
+}
+
+export async function savePost(
+  itemIds: string[],
+  description?: string,
+  collageUrl?: string
+): Promise<Post> {
+  const response = await fetch(`${API_BASE}/api/posts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      item_ids: itemIds,
+      description: description || null,
+      collage_url: collageUrl || null,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to save post')
+  }
+
+  return response.json()
+}
+
+export async function updateItemsStatus(
+  itemIds: string[],
+  status: ItemStatus
+): Promise<void> {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${API_BASE}/api/items/status`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      item_ids: itemIds,
+      status: status,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to update items status')
+  }
+}
+
+export async function getPublications(): Promise<Publication[]> {
+  const response = await fetch(`${API_BASE}/api/publications`)
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch publications')
+  }
+
+  const data = await response.json()
+  return data.publications
+}
+
+export async function createPublication(
+  itemIds: string[],
+  fbPageName: string,
+  postId?: string,
+  description?: string,
+  collageUrl?: string
+): Promise<Publication> {
+  const response = await fetch(`${API_BASE}/api/publications`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      post_id: postId || null,
+      item_ids: itemIds,
+      fb_page_name: fbPageName,
+      description: description || null,
+      collage_url: collageUrl || null,
+    }),
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to record publication')
   }
 
   return response.json()

@@ -1,7 +1,7 @@
 import { Checkbox } from './ui/checkbox'
 import { Input } from './ui/input'
 import { Button } from './ui/button'
-import { CONDITION_LABELS, MATERIAL_LABELS, STATUS_LABELS, type FilterState, type Condition, type Material, type ItemStatus } from '../types'
+import { CONDITION_LABELS, MATERIAL_LABELS, type FilterState, type Condition, type Material } from '../types'
 
 interface FilterModalProps {
   filters: FilterState
@@ -22,6 +22,11 @@ export function FilterModal({
   onCancel,
   onClearAll,
 }: FilterModalProps) {
+  // Guard against undefined filters during dialog animation
+  if (!filters?.sizes || !filters?.brands || !filters?.conditions || !filters?.materials) {
+    return null
+  }
+
   const handleSizeToggle = (size: string) => {
     const newSizes = filters.sizes.includes(size)
       ? filters.sizes.filter((s) => s !== size)
@@ -50,13 +55,6 @@ export function FilterModal({
     onFiltersChange({ ...filters, materials: newMaterials })
   }
 
-  const handleStatusToggle = (status: ItemStatus) => {
-    const newStatuses = filters.statuses.includes(status)
-      ? filters.statuses.filter((s) => s !== status)
-      : [...filters.statuses, status]
-    onFiltersChange({ ...filters, statuses: newStatuses })
-  }
-
   const handleBrandSearch = () => {
     // For now, just filter the displayed brands
     // In a real app, you'd implement autocomplete
@@ -66,8 +64,7 @@ export function FilterModal({
     filters.sizes.length +
     filters.brands.length +
     filters.conditions.length +
-    filters.materials.length +
-    filters.statuses.length
+    filters.materials.length
 
   return (
     <div className="flex flex-col h-full">
@@ -142,24 +139,7 @@ export function FilterModal({
               </label>
             ))}
           </div>
-          <div className="border-b border-border mt-4 mb-4" />
-        </div>
-
-        {/* Status Section */}
-        <div>
-          <h3 className="text-sm font-medium mb-3">Status</h3>
-          <div className="space-y-2">
-            {(Object.keys(STATUS_LABELS) as ItemStatus[]).map((status) => (
-              <label key={status} className="flex items-center gap-2 cursor-pointer">
-                <Checkbox
-                  checked={filters.statuses.includes(status)}
-                  onCheckedChange={() => handleStatusToggle(status)}
-                />
-                <span className="text-sm">{STATUS_LABELS[status]}</span>
-              </label>
-            ))}
           </div>
-        </div>
       </div>
 
       {/* Footer */}

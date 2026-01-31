@@ -1,13 +1,24 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import Response
-from app.services.gemini import analyze_image
+from pydantic import BaseModel
+from app.services.gemini import analyze_image, generate_post_description
 from app.services.background import remove_background
-from app.models import AIAnalysis
+from app.services.collage import create_collage
+from app.models import AIAnalysis, GenerateDescriptionRequest, PostCreate, Post, PublicationCreate, Publication
+from app.database import supabase
+from app.services.storage import upload_image
 import os
 import tempfile
 import logging
+import uuid
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+
+class CollageRequest(BaseModel):
+    image_urls: list[str]
+    columns: int = 2
 
 router = APIRouter(prefix="/api", tags=["ai"])
 
@@ -54,6 +65,26 @@ async def analyze_image_endpoint(image: UploadFile = File(...)) -> AIAnalysis:
             logger.info(f"[ANALYZE-IMAGE] Cleaned up temp file")
 
 
+@router.post("/create-collage")
+async def create_collage_endpoint(request: CollageRequest) -> Response:
+    """Create a collage from multiple image URLs."""
+    logger.info(f"[COLLAGE] Received request with {len(request.image_urls)} images")
+
+    if len(request.image_urls) == 0:
+        raise HTTPException(status_code=400, detail="At least one image is required")
+
+    if len(request.image_urls) > 20:
+        raise HTTPException(status_code=400, detail="Maximum 20 images allowed")
+
+    try:
+        result = await create_collage(request.image_urls, request.columns)
+        logger.info(f"[COLLAGE] Success, returning collage image")
+        return Response(content=result, media_type="image/jpeg")
+    except Exception as e:
+        logger.error(f"[COLLAGE] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/remove-background")
 async def remove_background_endpoint(image: UploadFile = File(...)) -> Response:
     """Remove background from image and replace with white."""
@@ -77,4 +108,125 @@ async def remove_background_endpoint(image: UploadFile = File(...)) -> Response:
         return Response(content=result, media_type="image/jpeg")
     except Exception as e:
         logger.error(f"[REMOVE-BG] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/generate-description")
+async def generate_description_endpoint(request: GenerateDescriptionRequest) -> dict:
+    """Generate a post description using Gemini based on selected items."""
+    logger.info(f"[GENERATE-DESC] Received request with {len(request.items)} items")
+
+    if len(request.items) == 0:
+        raise HTTPException(status_code=400, detail="At least one item is required")
+
+    try:
+        description = await generate_post_description(request.items)
+        return {"description": description}
+    except Exception as e:
+        logger.error(f"[GENERATE-DESC] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/posts")
+async def get_posts_endpoint() -> dict:
+    """Get all saved posts."""
+    logger.info("[GET-POSTS] Fetching saved posts")
+
+    try:
+        response = (
+            supabase.table("posts")
+            .select("*")
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return {"posts": response.data}
+    except Exception as e:
+        logger.error(f"[GET-POSTS] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/posts", response_model=Post)
+async def create_post_endpoint(post: PostCreate) -> Post:
+    """Save a post to Supabase."""
+    logger.info(f"[CREATE-POST] Creating post with {len(post.item_ids)} items")
+
+    post_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+
+    post_data = {
+        "id": post_id,
+        "item_ids": post.item_ids,
+        "description": post.description,
+        "collage_url": post.collage_url,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    try:
+        result = supabase.table("posts").insert(post_data).execute()
+        logger.info(f"[CREATE-POST] Post created with ID: {post_id}")
+        return Post(**post_data)
+    except Exception as e:
+        logger.error(f"[CREATE-POST] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/upload-collage")
+async def upload_collage_endpoint(image: UploadFile = File(...)) -> dict:
+    """Upload a collage image to storage and return its URL."""
+    logger.info(f"[UPLOAD-COLLAGE] Received collage upload")
+
+    content = await image.read()
+
+    try:
+        url = await upload_image(content, folder="collages")
+        logger.info(f"[UPLOAD-COLLAGE] Collage uploaded: {url}")
+        return {"url": url}
+    except Exception as e:
+        logger.error(f"[UPLOAD-COLLAGE] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/publications")
+async def get_publications_endpoint() -> dict:
+    """Get all publications."""
+    logger.info("[GET-PUBLICATIONS] Fetching publications")
+
+    try:
+        response = (
+            supabase.table("publications")
+            .select("*")
+            .order("published_at", desc=True)
+            .execute()
+        )
+        return {"publications": response.data}
+    except Exception as e:
+        logger.error(f"[GET-PUBLICATIONS] Error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/publications", response_model=Publication)
+async def create_publication_endpoint(pub: PublicationCreate) -> Publication:
+    """Record a publication."""
+    logger.info(f"[CREATE-PUBLICATION] Recording publication to {pub.fb_page_name}")
+
+    pub_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+
+    pub_data = {
+        "id": pub_id,
+        "post_id": pub.post_id,
+        "item_ids": pub.item_ids,
+        "fb_page_name": pub.fb_page_name,
+        "description": pub.description,
+        "collage_url": pub.collage_url,
+        "published_at": now,
+    }
+
+    try:
+        result = supabase.table("publications").insert(pub_data).execute()
+        logger.info(f"[CREATE-PUBLICATION] Publication recorded with ID: {pub_id}")
+        return Publication(**pub_data)
+    except Exception as e:
+        logger.error(f"[CREATE-PUBLICATION] Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

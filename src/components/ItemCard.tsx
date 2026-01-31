@@ -1,18 +1,19 @@
 import { useNavigate } from 'react-router-dom'
-import { STATUS_LABELS, type Item } from '../types'
+import { Trash2 } from 'lucide-react'
+import type { Item } from '../types'
 
 interface ItemCardProps {
   item: Item
+  onDelete?: (item: Item) => void
 }
 
-export function ItemCard({ item }: ItemCardProps) {
+export function ItemCard({ item, onDelete }: ItemCardProps) {
   const navigate = useNavigate()
 
-  const statusClass = {
-    draft: 'status-draft',
-    ready: 'status-ready',
-    sold: 'status-sold',
-  }[item.status]
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onDelete?.(item)
+  }
 
   return (
     <div
@@ -42,9 +43,14 @@ export function ItemCard({ item }: ItemCardProps) {
             </svg>
           </div>
         )}
-        <span className={`status-badge ${statusClass} absolute top-0.5 right-0.5`}>
-          {STATUS_LABELS[item.status]}
-        </span>
+        {onDelete && (
+          <button
+            onClick={handleDelete}
+            className="absolute top-0.5 left-0.5 bg-red-500 hover:bg-red-600 text-white p-1 rounded"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        )}
       </div>
       <div className="px-1.5 py-1 flex items-center justify-between">
         <span className="text-xs font-bold text-primary">{item.price}€</span>
