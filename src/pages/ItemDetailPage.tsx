@@ -14,7 +14,6 @@ import {
   CATEGORY_LABELS,
   CONDITION_LABELS,
   MATERIAL_LABELS,
-  STATUS_LABELS,
 } from '../types'
 
 export function ItemDetailPage() {

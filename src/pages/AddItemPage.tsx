@@ -4,7 +4,7 @@ import { ArrowLeft, Loader } from 'lucide-react'
 import { PhotoUpload } from '../components/PhotoUpload'
 import { ItemForm } from '../components/ItemForm'
 import { analyzeImage, createItem } from '../lib/api'
-import type { ItemFormData, AIAnalysis } from '../types'
+import type { ItemFormData } from '../types'
 
 type Step = 'upload' | 'form'
 
