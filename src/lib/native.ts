@@ -101,6 +101,46 @@ export async function photoToFile(photo: Photo | GalleryPhoto, filename?: string
   return new File([resizedBlob], name, { type: 'image/jpeg' });
 }
 
+// Get or create album for saving photos
+async function getOrCreateAlbum(): Promise<string> {
+  try {
+    const albums = await Media.getAlbums();
+    console.log('[NATIVE] Available albums:', albums.albums.map(a => a.name));
+
+    // Try to find Camera or DCIM album first (most recent photos location)
+    const preferredAlbums = ['Camera', 'DCIM', 'Pictures', 'Download', 'Downloads'];
+    for (const name of preferredAlbums) {
+      const album = albums.albums.find(a => a.name.toLowerCase() === name.toLowerCase());
+      if (album) {
+        console.log('[NATIVE] Using existing album:', album.name);
+        return album.identifier;
+      }
+    }
+
+    // If no preferred album found, use the first user album
+    if (albums.albums.length > 0) {
+      console.log('[NATIVE] Using first available album:', albums.albums[0].name);
+      return albums.albums[0].identifier;
+    }
+
+    // No albums exist, create one called "Pictures"
+    console.log('[NATIVE] No albums found, creating Pictures album');
+    await Media.createAlbum({ name: 'Pictures' });
+
+    // Get the newly created album
+    const newAlbums = await Media.getAlbums();
+    const picturesAlbum = newAlbums.albums.find(a => a.name === 'Pictures');
+    if (picturesAlbum) {
+      return picturesAlbum.identifier;
+    }
+
+    throw new Error('Could not create or find album');
+  } catch (error) {
+    console.error('[NATIVE] Error getting/creating album:', error);
+    throw error;
+  }
+}
+
 // Save multiple images to gallery (will appear as recent photos)
 export async function saveImagesToGallery(imageUrls: string[]): Promise<void> {
   if (!isNative()) {
@@ -110,8 +150,14 @@ export async function saveImagesToGallery(imageUrls: string[]): Promise<void> {
   lastSavedImagePaths = [];
 
   try {
+    // Get or create album to save to (required on Android)
+    const albumId = await getOrCreateAlbum();
+    console.log('[NATIVE] Saving', imageUrls.length, 'images to album:', albumId);
+
     for (let i = 0; i < imageUrls.length; i++) {
       const imageUrl = imageUrls[i];
+      console.log('[NATIVE] Fetching image', i + 1, ':', imageUrl.substring(0, 50) + '...');
+
       const response = await fetch(imageUrl);
       const blob = await response.blob();
       const base64 = await blobToBase64(blob);
@@ -123,10 +169,16 @@ export async function saveImagesToGallery(imageUrls: string[]): Promise<void> {
         directory: Directory.Cache,
       });
 
-      // Save to gallery without album - appears in recent photos
+      console.log('[NATIVE] Temp file saved:', savedFile.uri);
+
+      // Save to gallery using Media plugin
       const result = await Media.savePhoto({
         path: savedFile.uri,
+        albumIdentifier: albumId,
+        fileName: `ormar_${Date.now()}_${i}`,
       });
+
+      console.log('[NATIVE] Saved to gallery:', result);
 
       // Track the saved path for potential deletion
       if (result.filePath) {
@@ -140,8 +192,10 @@ export async function saveImagesToGallery(imageUrls: string[]): Promise<void> {
         // Ignore cleanup errors
       }
     }
+
+    console.log('[NATIVE] Saved', lastSavedImagePaths.length, 'images to gallery');
   } catch (error) {
-    console.error('Error saving images to gallery:', error);
+    console.error('[NATIVE] Error saving images to gallery:', error);
     throw error;
   }
 }

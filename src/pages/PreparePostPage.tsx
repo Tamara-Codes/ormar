@@ -231,15 +231,19 @@ export function PreparePostPage() {
           imagesToSave.push(...item.images)
         }
 
+        console.log('[PUBLISH] Images to save:', imagesToSave.length)
+
         // Save all images to gallery (will appear as recent)
         if (imagesToSave.length > 0) {
           await saveImagesToGallery(imagesToSave)
+          console.log('[PUBLISH] Images saved successfully')
         }
 
         // Open Facebook directly
         await openFacebook()
       } catch (error) {
-        console.error('Error preparing for Facebook:', error)
+        console.error('[PUBLISH] Error preparing for Facebook:', error)
+        alert('Greška pri spremanju slika: ' + (error instanceof Error ? error.message : String(error)))
         // Still try to open Facebook
         await openFacebook()
       }
