@@ -32,19 +32,19 @@ async def analyze_image(image_path: str) -> AIAnalysis:
     """Analyze image using Gemini Vision API and return structured analysis."""
     logger.info(f"[GEMINI] Starting image analysis for: {image_path}")
 
-    model = genai.GenerativeModel("gemini-2.5-flash-lite")
-    logger.info("[GEMINI] Model initialized: gemini-2.5-flash-lite")
+    model = genai.GenerativeModel("gemini-2.0-flash")
+    logger.info("[GEMINI] Model initialized: gemini-2.0-flash")
 
     # Compress image to save API costs
     logger.info(f"[GEMINI] Opening image: {image_path}")
     img = Image.open(image_path)
     original_size = img.size
-    img.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+    img.thumbnail((800, 800), Image.Resampling.LANCZOS)
     logger.info(f"[GEMINI] Image compressed from {original_size} to {img.size}")
 
-    # Call Gemini API
+    # Call Gemini API (async)
     logger.info("[GEMINI] Calling Gemini API with image and prompt...")
-    response = model.generate_content([PROMPT, img])
+    response = await model.generate_content_async([PROMPT, img])
     logger.info(f"[GEMINI] Gemini response received. Text length: {len(response.text)}")
     logger.info(f"[GEMINI] Raw response: {response.text[:500]}")
 
@@ -75,7 +75,7 @@ async def generate_post_description(items: list[dict]) -> str:
     """Generate a Facebook post description based on items."""
     logger.info(f"[GEMINI] Generating post description for {len(items)} items")
 
-    model = genai.GenerativeModel("gemini-2.5-flash-lite")
+    model = genai.GenerativeModel("gemini-2.0-flash")
 
     # Build item details for the prompt
     items_text = ""
@@ -104,7 +104,7 @@ Pravila:
 
 Vrati SAMO tekst opisa, bez dodatnih objašnjenja."""
 
-    response = model.generate_content(prompt)
+    response = await model.generate_content_async(prompt)
     description = response.text.strip()
     logger.info(f"[GEMINI] Generated description: {description[:100]}...")
     return description
