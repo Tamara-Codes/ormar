@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Check, Loader, Sparkles, Save, ExternalLink, Copy, CheckCheck } from 'lucide-react'
 import { createCollage, getItems, generatePostDescription, uploadCollage, savePost, getSavedPosts, createPublication, getPublications } from '../lib/api'
-import { isNative, copyToClipboard, shareToFacebook, saveCollageToOrmarAlbum, openFacebook } from '../lib/native'
+import { isNative, copyToClipboard, saveImagesToOrmarAlbum, openFacebook } from '../lib/native'
 import type { Item, Post } from '../types'
 
 export function PreparePostPage() {
@@ -43,6 +43,9 @@ export function PreparePostPage() {
 
   // Clipboard state
   const [copiedToClipboard, setCopiedToClipboard] = useState(false)
+
+  // Cleanup prompt state
+  const [showCleanupPrompt, setShowCleanupPrompt] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -202,18 +205,29 @@ export function PreparePostPage() {
 
     if (isNative()) {
       try {
-        // Save collage to Ormar album for native sharing if available
+        // Collect all images to save: collage + all selected item images
+        const imagesToSave: string[] = []
+
+        // Add collage first if exists
         if (collageUrl) {
-          const savedPath = await saveCollageToOrmarAlbum(collageUrl)
-          // Share to Facebook with collage
-          await shareToFacebook(savedPath, description || undefined)
-        } else {
-          // Just open Facebook
-          await openFacebook()
+          imagesToSave.push(collageUrl)
         }
+
+        // Add all images from selected items
+        for (const item of selectedItems) {
+          imagesToSave.push(...item.images)
+        }
+
+        // Save all images to Ormar album
+        if (imagesToSave.length > 0) {
+          await saveImagesToOrmarAlbum(imagesToSave)
+        }
+
+        // Open Facebook directly
+        await openFacebook()
       } catch (error) {
-        console.error('Error sharing to Facebook:', error)
-        // Fallback to opening Facebook
+        console.error('Error preparing for Facebook:', error)
+        // Still try to open Facebook
         await openFacebook()
       }
     } else {
@@ -241,6 +255,7 @@ export function PreparePostPage() {
         description || undefined,
         collageUrl || undefined
       )
+
       // Add new page to known pages if it's not already there
       if (!knownFbPages.includes(pageName)) {
         setKnownFbPages(prev => [...prev, pageName])
@@ -251,6 +266,11 @@ export function PreparePostPage() {
       setCustomFbPage('')
       publishedItemIds.current = []
       currentPostId.current = null
+
+      // Show cleanup prompt on native
+      if (isNative()) {
+        setShowCleanupPrompt(true)
+      }
     } catch (error) {
       console.error('Failed to record publication:', error)
     } finally {
@@ -656,6 +676,38 @@ export function PreparePostPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Cleanup Prompt */}
+      {showCleanupPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-background rounded-lg p-6 mx-4 max-w-sm w-full shadow-lg">
+            <h3 className="text-lg font-bold text-center mb-2">
+              Objava spremljena!
+            </h3>
+            <p className="text-sm text-muted-foreground text-center mb-6">
+              Slike su spremljene u "Ormar" album u galeriji. Možeš ih obrisati ako više nisu potrebne.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCleanupPrompt(false)}
+                className="flex-1 py-2.5 border border-border rounded-lg font-medium hover:bg-muted transition-colors"
+              >
+                Preskoči
+              </button>
+              <button
+                onClick={() => {
+                  setShowCleanupPrompt(false)
+                  // Open gallery app - this will open the default gallery
+                  window.location.href = 'content://media/internal/images/media'
+                }}
+                className="flex-1 py-2.5 bg-primary text-white rounded-lg font-medium hover:opacity-90 transition-opacity"
+              >
+                Otvori galeriju
+              </button>
+            </div>
           </div>
         </div>
       )}

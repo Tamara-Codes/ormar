@@ -134,14 +134,14 @@ export function PhotoUpload({ photos, onPhotosChange, maxPhotos = 5 }: PhotoUplo
               className="w-full flex items-center gap-3 p-4 rounded-lg hover:bg-gray-100 transition-colors"
             >
               <Camera className="w-6 h-6 text-blue-500" />
-              <span className="font-medium">Uslikaj kamerom</span>
+              <span className="font-medium text-gray-900">Uslikaj kamerom</span>
             </button>
             <button
               onClick={handlePickFromGallery}
               className="w-full flex items-center gap-3 p-4 rounded-lg hover:bg-gray-100 transition-colors"
             >
               <Image className="w-6 h-6 text-green-500" />
-              <span className="font-medium">Odaberi iz galerije</span>
+              <span className="font-medium text-gray-900">Odaberi iz galerije</span>
             </button>
             <button
               onClick={() => setShowOptions(false)}

@@ -26,7 +26,6 @@ export function ItemGrid({ items, onDeleteItem }: ItemGridProps) {
           </svg>
         </div>
         <p className="text-muted-foreground font-medium">Nema artikala</p>
-        <p className="text-muted-foreground/70 text-sm mt-1">Dodaj prvi artikl</p>
       </div>
     )
   }

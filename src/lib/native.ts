@@ -1,7 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { Camera, CameraResultType, CameraSource, Photo, GalleryPhoto } from '@capacitor/camera';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
-import { Share } from '@capacitor/share';
 import { Clipboard } from '@capacitor/clipboard';
 import { Media } from '@capacitor-community/media';
 
@@ -128,59 +127,55 @@ async function ensureOrmarAlbum(): Promise<string> {
   }
 }
 
-// Save collage to Ormar album (temp folder for FB posting)
-export async function saveCollageToOrmarAlbum(imageUrl: string): Promise<string> {
-  if (!isNative()) {
-    // On web, just return the URL
-    return imageUrl;
-  }
-
-  try {
-    // Download the image
-    const response = await fetch(imageUrl);
-    const blob = await response.blob();
-    const base64 = await blobToBase64(blob);
-
-    // Ensure Ormar album exists
-    const albumIdentifier = await ensureOrmarAlbum();
-
-    // Save to filesystem first
-    const filename = `collage_${Date.now()}.jpg`;
-    const savedFile = await Filesystem.writeFile({
-      path: filename,
-      data: base64,
-      directory: Directory.Cache,
-    });
-
-    // Save to Ormar album
-    await Media.savePhoto({
-      path: savedFile.uri,
-      albumIdentifier,
-    });
-
-    return savedFile.uri;
-  } catch (error) {
-    console.error('Error saving collage to album:', error);
-    throw error;
-  }
-}
-
-// Delete collage from Ormar album after posting
-export async function deleteFromOrmarAlbum(filePath: string): Promise<void> {
+// Save multiple images to Ormar album for FB posting
+export async function saveImagesToOrmarAlbum(imageUrls: string[]): Promise<void> {
   if (!isNative()) {
     return;
   }
 
   try {
-    // Note: Deleting from gallery requires additional permissions
-    // For now, we'll just delete from cache
-    await Filesystem.deleteFile({
-      path: filePath,
-    });
+    const albumIdentifier = await ensureOrmarAlbum();
+
+    for (let i = 0; i < imageUrls.length; i++) {
+      const imageUrl = imageUrls[i];
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const base64 = await blobToBase64(blob);
+
+      const filename = `ormar_${Date.now()}_${i}.jpg`;
+      const savedFile = await Filesystem.writeFile({
+        path: filename,
+        data: base64,
+        directory: Directory.Cache,
+      });
+
+      await Media.savePhoto({
+        path: savedFile.uri,
+        albumIdentifier,
+      });
+
+      // Clean up cache file
+      try {
+        await Filesystem.deleteFile({ path: filename, directory: Directory.Cache });
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
   } catch (error) {
-    console.error('Error deleting file:', error);
-    // Silently fail - cleanup is best effort
+    console.error('Error saving images to album:', error);
+    throw error;
   }
+}
+
+// Clear Ormar album - note: Android doesn't allow apps to delete gallery photos without user consent
+// The images will remain in the Ormar album but this is expected behavior
+export async function clearOrmarAlbum(): Promise<void> {
+  if (!isNative()) {
+    return;
+  }
+  // Note: Deleting photos from gallery requires user consent on Android
+  // The Ormar album will persist with the shared images
+  console.log('[NATIVE] Ormar album cleanup requested - images remain in gallery');
 }
 
 // Clipboard functions
@@ -201,35 +196,12 @@ export async function readFromClipboard(): Promise<string> {
   }
 }
 
-// Share functions
-export async function shareToFacebook(imageUrl: string, text?: string): Promise<void> {
-  if (isNative()) {
-    // Try to share with Facebook
-    await Share.share({
-      title: 'My Closet Post',
-      text: text || '',
-      url: imageUrl,
-      dialogTitle: 'Share to Facebook',
-    });
-  } else {
-    // On web, open Facebook in new tab
-    const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(imageUrl)}`;
-    window.open(fbUrl, '_blank');
-  }
-}
-
+// Open Facebook app directly (no share sheet)
 export async function openFacebook(): Promise<void> {
   if (isNative()) {
-    // Try to open Facebook app with deep link
-    try {
-      await Share.share({
-        url: 'fb://feed',
-        dialogTitle: 'Open Facebook',
-      });
-    } catch {
-      // Fallback to web URL
-      window.open('https://www.facebook.com', '_blank');
-    }
+    // Open Facebook app using deep link
+    window.location.href = 'fb://feed';
+    // Give it a moment to open, then the app will handle the return
   } else {
     window.open('https://www.facebook.com', '_blank');
   }
