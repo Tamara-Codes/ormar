@@ -1,19 +1,23 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { LogOut } from 'lucide-react'
 import { CategoryDropdown } from '../components/CategoryDropdown'
 import { FilterButton } from '../components/FilterButton'
 import { ItemGrid } from '../components/ItemGrid'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { FilterModal } from '../components/FilterModal'
 import { getItems, deleteItem } from '../lib/api'
+import { useAuth } from '../contexts/AuthContext'
 import type { Category, Item, FilterState } from '../types'
 
 export function HomePage() {
   const navigate = useNavigate()
+  const { signOut } = useAuth()
   const [selectedCategory, setSelectedCategory] = useState<Category | 'all'>('all')
   const [items, setItems] = useState<Item[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
   useEffect(() => {
     const fetchItems = async () => {
@@ -117,6 +121,11 @@ export function HomePage() {
     navigate('/prepare-post')
   }
 
+  const handleLogout = async () => {
+    await signOut()
+    setShowLogoutConfirm(false)
+  }
+
   const handleDeleteItem = async () => {
     if (!itemToDelete) return
     setIsDeleting(true)
@@ -162,12 +171,21 @@ export function HomePage() {
             </svg>
             <span className="text-lg font-bold text-foreground">My Closet</span>
           </div>
-          <button
-            onClick={() => navigate('/analytics')}
-            className="flex items-center justify-center hover:opacity-80 transition-opacity"
-          >
-            <img src="/analytics-icon.png" alt="Analitika" className="w-11 h-11" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate('/analytics')}
+              className="flex items-center justify-center hover:opacity-80 transition-opacity"
+            >
+              <img src="/analytics-icon.png" alt="Analitika" className="w-11 h-11" />
+            </button>
+            <button
+              onClick={() => setShowLogoutConfirm(true)}
+              className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+              title="Odjava"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="px-4 py-3 space-y-3">
@@ -274,6 +292,29 @@ export function HomePage() {
                 className="flex-1 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
               >
                 {isDeleting ? 'Brisanje...' : 'Obriši'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Logout confirmation popup */}
+      {showLogoutConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-background rounded-lg p-4 mx-4 max-w-sm w-full shadow-lg">
+            <p className="text-center mb-4">Jeste li sigurni da se želite odjaviti?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLogoutConfirm(false)}
+                className="flex-1 py-2 border border-border rounded-lg font-medium hover:bg-muted transition-colors"
+              >
+                Odustani
+              </button>
+              <button
+                onClick={handleLogout}
+                className="flex-1 py-2 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors"
+              >
+                Odjavi se
               </button>
             </div>
           </div>

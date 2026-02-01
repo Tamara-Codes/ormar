@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Check, Loader, Sparkles, Save, ExternalLink } from 'lucide-react'
+import { ArrowLeft, Check, Loader, Sparkles, Save, ExternalLink, Copy, CheckCheck } from 'lucide-react'
 import { createCollage, getItems, generatePostDescription, uploadCollage, savePost, getSavedPosts, createPublication, getPublications } from '../lib/api'
+import { isNative, copyToClipboard, shareToFacebook, saveCollageToOrmarAlbum, openFacebook } from '../lib/native'
 import type { Item, Post } from '../types'
 
 export function PreparePostPage() {
@@ -39,6 +40,9 @@ export function PreparePostPage() {
   const waitingForFbReturn = useRef(false)
   const publishedItemIds = useRef<string[]>([])
   const currentPostId = useRef<string | null>(null)
+
+  // Clipboard state
+  const [copiedToClipboard, setCopiedToClipboard] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -180,12 +184,42 @@ export function PreparePostPage() {
     }
   }
 
-  const handlePublish = () => {
+  const handleCopyDescription = async () => {
+    if (!description) return
+    try {
+      await copyToClipboard(description)
+      setCopiedToClipboard(true)
+      setTimeout(() => setCopiedToClipboard(false), 2000)
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error)
+    }
+  }
+
+  const handlePublish = async () => {
     // Store the item IDs being published
     publishedItemIds.current = Array.from(selectedItemIds)
     waitingForFbReturn.current = true
-    // Open Facebook in a new tab
-    window.open('https://www.facebook.com/', '_blank')
+
+    if (isNative()) {
+      try {
+        // Save collage to Ormar album for native sharing if available
+        if (collageUrl) {
+          const savedPath = await saveCollageToOrmarAlbum(collageUrl)
+          // Share to Facebook with collage
+          await shareToFacebook(savedPath, description || undefined)
+        } else {
+          // Just open Facebook
+          await openFacebook()
+        }
+      } catch (error) {
+        console.error('Error sharing to Facebook:', error)
+        // Fallback to opening Facebook
+        await openFacebook()
+      }
+    } else {
+      // On web, open Facebook in a new tab
+      window.open('https://www.facebook.com/', '_blank')
+    }
   }
 
   const handleConfirmPublished = () => {
@@ -383,24 +417,45 @@ export function PreparePostPage() {
             <div className="border border-border rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
                 <label className="text-sm font-medium">Opis posta</label>
-                <button
-                  onClick={handleGenerateDescription}
-                  disabled={isGeneratingDescription}
-                  className="flex items-center gap-1.5 text-xs text-primary hover:opacity-80 disabled:opacity-50"
-                >
-                  {isGeneratingDescription ? (
-                    <Loader className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-3.5 h-3.5" />
+                <div className="flex items-center gap-2">
+                  {description && (
+                    <button
+                      onClick={handleCopyDescription}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {copiedToClipboard ? (
+                        <>
+                          <CheckCheck className="w-3.5 h-3.5 text-green-500" />
+                          <span className="text-green-500">Kopirano</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          Kopiraj
+                        </>
+                      )}
+                    </button>
                   )}
-                  Generiraj s AI
-                </button>
+                  <button
+                    onClick={handleGenerateDescription}
+                    disabled={isGeneratingDescription}
+                    className="flex items-center gap-1.5 text-xs text-primary hover:opacity-80 disabled:opacity-50"
+                  >
+                    {isGeneratingDescription ? (
+                      <Loader className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5" />
+                    )}
+                    Generiraj s AI
+                  </button>
+                </div>
               </div>
               <textarea
                 value={description}
                 onChange={(e) => {
                   setDescription(e.target.value)
                   setSaveSuccess(false)
+                  setCopiedToClipboard(false)
                 }}
                 placeholder="Napiši opis za post ili generiraj pomoću AI..."
                 className="w-full h-24 px-3 py-2 border border-border rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 bg-background text-foreground"

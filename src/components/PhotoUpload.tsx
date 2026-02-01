@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
-import { Upload, X } from 'lucide-react'
+import { Upload, X, Camera, Image } from 'lucide-react'
+import { isNative, takePhoto, pickFromGallery, pickMultipleFromGallery, photoToFile } from '../lib/native'
 
 interface PhotoUploadProps {
   photos: File[]
@@ -9,6 +10,7 @@ interface PhotoUploadProps {
 
 export function PhotoUpload({ photos, onPhotosChange, maxPhotos = 5 }: PhotoUploadProps) {
   const [isDragging, setIsDragging] = useState(false)
+  const [showOptions, setShowOptions] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -46,6 +48,52 @@ export function PhotoUpload({ photos, onPhotosChange, maxPhotos = 5 }: PhotoUplo
     onPhotosChange(newPhotos)
   }
 
+  // Native camera functions
+  const handleTakePhoto = async () => {
+    try {
+      setShowOptions(false)
+      const photo = await takePhoto()
+      const file = await photoToFile(photo)
+      const newPhotos = [...photos, file].slice(0, maxPhotos)
+      onPhotosChange(newPhotos)
+    } catch (error) {
+      console.error('Error taking photo:', error)
+    }
+  }
+
+  const handlePickFromGallery = async () => {
+    try {
+      setShowOptions(false)
+      if (photos.length < maxPhotos - 1) {
+        // Allow picking multiple if we have space
+        const selectedPhotos = await pickMultipleFromGallery()
+        const files = await Promise.all(
+          selectedPhotos.map((photo, index) => photoToFile(photo, `gallery_${Date.now()}_${index}.jpeg`))
+        )
+        const newPhotos = [...photos, ...files].slice(0, maxPhotos)
+        onPhotosChange(newPhotos)
+      } else {
+        // Only one slot left, pick single
+        const photo = await pickFromGallery()
+        const file = await photoToFile(photo)
+        const newPhotos = [...photos, file].slice(0, maxPhotos)
+        onPhotosChange(newPhotos)
+      }
+    } catch (error) {
+      console.error('Error picking from gallery:', error)
+    }
+  }
+
+  const handleUploadClick = () => {
+    if (isNative()) {
+      setShowOptions(true)
+    } else {
+      fileInputRef.current?.click()
+    }
+  }
+
+  const remainingSlots = maxPhotos - photos.length
+
   return (
     <div className="space-y-4">
       {/* Upload area */}
@@ -57,8 +105,8 @@ export function PhotoUpload({ photos, onPhotosChange, maxPhotos = 5 }: PhotoUplo
           isDragging
             ? 'border-primary bg-primary/5'
             : 'border-gray-300 hover:border-gray-400'
-        }`}
-        onClick={() => fileInputRef.current?.click()}
+        } ${remainingSlots === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+        onClick={() => remainingSlots > 0 && handleUploadClick()}
       >
         <input
           ref={fileInputRef}
@@ -76,6 +124,34 @@ export function PhotoUpload({ photos, onPhotosChange, maxPhotos = 5 }: PhotoUplo
           {photos.length}/{maxPhotos} fotografija
         </p>
       </div>
+
+      {/* Native options modal */}
+      {showOptions && isNative() && (
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50" onClick={() => setShowOptions(false)}>
+          <div className="bg-white w-full max-w-md rounded-t-2xl p-4 space-y-2" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={handleTakePhoto}
+              className="w-full flex items-center gap-3 p-4 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              <Camera className="w-6 h-6 text-blue-500" />
+              <span className="font-medium">Uslikaj kamerom</span>
+            </button>
+            <button
+              onClick={handlePickFromGallery}
+              className="w-full flex items-center gap-3 p-4 rounded-lg hover:bg-gray-100 transition-colors"
+            >
+              <Image className="w-6 h-6 text-green-500" />
+              <span className="font-medium">Odaberi iz galerije</span>
+            </button>
+            <button
+              onClick={() => setShowOptions(false)}
+              className="w-full p-4 text-gray-500 font-medium"
+            >
+              Odustani
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Photo grid */}
       {photos.length > 0 && (
