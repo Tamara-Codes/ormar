@@ -104,8 +104,27 @@ async def remove_background_endpoint(image: UploadFile = File(...)) -> Response:
 
     try:
         result = await remove_background(content)
-        logger.info(f"[REMOVE-BG] Success, returning image")
-        return Response(content=result, media_type="image/jpeg")
+
+        # Compress result for faster mobile download
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(result))
+
+        # Resize if too large
+        max_dim = 1200
+        if img.width > max_dim or img.height > max_dim:
+            img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+
+        # Compress
+        output = io.BytesIO()
+        img.save(output, format='JPEG', quality=85, optimize=True)
+        compressed = output.getvalue()
+
+        original_size = len(result) / 1024
+        compressed_size = len(compressed) / 1024
+        logger.info(f"[REMOVE-BG] Compressed {original_size:.0f}KB -> {compressed_size:.0f}KB")
+
+        return Response(content=compressed, media_type="image/jpeg")
     except Exception as e:
         logger.error(f"[REMOVE-BG] Error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

@@ -32,8 +32,8 @@ async def analyze_image(image_path: str) -> AIAnalysis:
     """Analyze image using Gemini Vision API and return structured analysis."""
     logger.info(f"[GEMINI] Starting image analysis for: {image_path}")
 
-    model = genai.GenerativeModel("gemini-2.0-flash")
-    logger.info("[GEMINI] Model initialized: gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    logger.info("[GEMINI] Model initialized: gemini-1.5-flash")
 
     # Compress image to save API costs
     logger.info(f"[GEMINI] Opening image: {image_path}")
@@ -75,7 +75,7 @@ async def generate_post_description(items: list[dict]) -> str:
     """Generate a Facebook post description based on items."""
     logger.info(f"[GEMINI] Generating post description for {len(items)} items")
 
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-1.5-flash")
 
     # Build item details for the prompt
     items_text = ""

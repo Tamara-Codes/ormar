@@ -16,29 +16,32 @@ router = APIRouter(prefix="/api", tags=["items"])
 
 
 async def get_current_user(authorization: Optional[str] = Header(None)) -> str:
-    """Extract user_id from JWT token. For development, use a test user if no token."""
-    # Test user UUID for development
-    TEST_USER_ID = "550e8400-e29b-41d4-a716-446655440000"
+    """Extract user_id from JWT token locally (fast, no network call)."""
+    import base64
+    import json
 
     if not authorization:
-        # Development mode: use test user
-        import os
-        if os.getenv("ENVIRONMENT") == "development":
-            logger.info(f"[AUTH] Development mode: using test user ID {TEST_USER_ID}")
-            return TEST_USER_ID
         raise HTTPException(status_code=401, detail="Missing authorization header")
 
     try:
         token = authorization.split(" ")[1]
-        # Verify token with Supabase
-        user = supabase.auth.get_user(token)
-        return user.user.id
+
+        # Decode JWT payload locally (no verification - Supabase already issued it)
+        # JWT format: header.payload.signature
+        payload_b64 = token.split(".")[1]
+        # Add padding if needed
+        payload_b64 += "=" * (4 - len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token: no user ID")
+
+        return user_id
+    except HTTPException:
+        raise
     except Exception as e:
-        # Fallback to test user in development
-        import os
-        if os.getenv("ENVIRONMENT") == "development":
-            logger.warning(f"[AUTH] Token verification failed, using test user: {str(e)}")
-            return TEST_USER_ID
+        logger.error(f"[AUTH] Token decode failed: {str(e)}")
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
 
 

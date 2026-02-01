@@ -3,23 +3,331 @@ import type { AIAnalysis, Item, ItemFormData, Post, ItemStatus, Publication } fr
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
-async function getAuthToken(): Promise<string> {
-  const session = await supabase.auth.getSession()
-  const token = session.data.session?.access_token
+// ============================================
+// DIRECT SUPABASE CALLS (fast, no backend hop)
+// ============================================
 
-  if (!token) {
-    // Development mode: return a test token
-    if (import.meta.env.DEV) {
-      console.warn('[AUTH] Development mode: no session found, using test token')
-      return 'test-token-dev'
-    }
-    console.error('[AUTH] No session found. User may not be logged in.')
-    throw new Error('Not authenticated - please log in first')
+export async function getItems(): Promise<Item[]> {
+  const { data, error } = await supabase
+    .from('items')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(`Failed to fetch items: ${error.message}`)
+  return data || []
+}
+
+export async function getItem(itemId: string): Promise<Item> {
+  const { data, error } = await supabase
+    .from('items')
+    .select('*')
+    .eq('id', itemId)
+    .single()
+
+  if (error) throw new Error(`Item not found: ${error.message}`)
+  return data
+}
+
+export async function createItem(formData: ItemFormData): Promise<Item> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  // Upload images to Supabase Storage
+  const imageUrls: string[] = []
+  for (let i = 0; i < formData.images.length; i++) {
+    const file = formData.images[i]
+    const timestamp = Date.now()
+    const filePath = `${user.id}/${timestamp}_${i}.jpg`
+
+    const { error: uploadError } = await supabase.storage
+      .from('item-images')
+      .upload(filePath, file)
+
+    if (uploadError) throw new Error(`Failed to upload image: ${uploadError.message}`)
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('item-images')
+      .getPublicUrl(filePath)
+
+    imageUrls.push(publicUrl)
   }
 
-  console.log('[AUTH] Token retrieved successfully')
-  return token
+  // Insert item
+  const { data, error } = await supabase
+    .from('items')
+    .insert({
+      user_id: user.id,
+      title: formData.title,
+      description: formData.description || '',
+      category: formData.category,
+      brand: formData.brand || null,
+      size: formData.size || null,
+      condition: formData.condition,
+      material: formData.material || null,
+      color: formData.color || null,
+      price: formData.price,
+      images: imageUrls,
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to create item: ${error.message}`)
+  return data
 }
+
+export async function updateItem(itemId: string, updates: Partial<ItemFormData>): Promise<Item> {
+  const updateData: Record<string, unknown> = {}
+
+  if (updates.title !== undefined) updateData.title = updates.title
+  if (updates.description !== undefined) updateData.description = updates.description
+  if (updates.category !== undefined) updateData.category = updates.category
+  if (updates.brand !== undefined) updateData.brand = updates.brand
+  if (updates.size !== undefined) updateData.size = updates.size
+  if (updates.condition !== undefined) updateData.condition = updates.condition
+  if (updates.material !== undefined) updateData.material = updates.material
+  if (updates.color !== undefined) updateData.color = updates.color
+  if (updates.price !== undefined) updateData.price = updates.price
+
+  const { data, error } = await supabase
+    .from('items')
+    .update(updateData)
+    .eq('id', itemId)
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to update item: ${error.message}`)
+  return data
+}
+
+export async function deleteItem(itemId: string): Promise<void> {
+  // Get item first to delete images
+  const item = await getItem(itemId)
+
+  // Delete images from storage
+  for (const imageUrl of item.images || []) {
+    try {
+      const path = imageUrl.split('/item-images/')[1]?.split('?')[0]
+      if (path) {
+        await supabase.storage.from('item-images').remove([path])
+      }
+    } catch (e) {
+      console.warn('Failed to delete image:', e)
+    }
+  }
+
+  // Delete item
+  const { error } = await supabase
+    .from('items')
+    .delete()
+    .eq('id', itemId)
+
+  if (error) throw new Error(`Failed to delete item: ${error.message}`)
+}
+
+export async function updateItemsStatus(itemIds: string[], status: ItemStatus): Promise<void> {
+  const { error } = await supabase
+    .from('items')
+    .update({ status })
+    .in('id', itemIds)
+
+  if (error) throw new Error(`Failed to update status: ${error.message}`)
+}
+
+export async function updateItemImage(
+  itemId: string,
+  imageIndex: number,
+  newImageBlob: Blob
+): Promise<Item> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  // Get current item
+  const item = await getItem(itemId)
+  const currentImages = [...(item.images || [])]
+
+  // Upload new image
+  const timestamp = Date.now()
+  const filePath = `${user.id}/${itemId}/${timestamp}.jpg`
+
+  const { error: uploadError } = await supabase.storage
+    .from('item-images')
+    .upload(filePath, newImageBlob)
+
+  if (uploadError) throw new Error(`Failed to upload image: ${uploadError.message}`)
+
+  const { data: { publicUrl } } = supabase.storage
+    .from('item-images')
+    .getPublicUrl(filePath)
+
+  // Update images array
+  currentImages[imageIndex] = publicUrl
+
+  // Update item
+  const { data, error } = await supabase
+    .from('items')
+    .update({ images: currentImages })
+    .eq('id', itemId)
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to update item: ${error.message}`)
+  return data
+}
+
+export async function deleteItemImage(itemId: string, imageIndex: number): Promise<Item> {
+  const item = await getItem(itemId)
+  const currentImages = [...(item.images || [])]
+
+  // Delete from storage
+  const imageUrl = currentImages[imageIndex]
+  try {
+    const path = imageUrl.split('/item-images/')[1]?.split('?')[0]
+    if (path) {
+      await supabase.storage.from('item-images').remove([path])
+    }
+  } catch (e) {
+    console.warn('Failed to delete image from storage:', e)
+  }
+
+  // Remove from array
+  currentImages.splice(imageIndex, 1)
+
+  // Update item
+  const { data, error } = await supabase
+    .from('items')
+    .update({ images: currentImages })
+    .eq('id', itemId)
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to update item: ${error.message}`)
+  return data
+}
+
+export async function addItemImages(itemId: string, images: File[]): Promise<Item> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const item = await getItem(itemId)
+  const currentImages = [...(item.images || [])]
+
+  // Upload new images
+  for (let i = 0; i < images.length; i++) {
+    const file = images[i]
+    const timestamp = Date.now()
+    const filePath = `${user.id}/${itemId}/${timestamp}_${i}.jpg`
+
+    const { error: uploadError } = await supabase.storage
+      .from('item-images')
+      .upload(filePath, file)
+
+    if (uploadError) throw new Error(`Failed to upload image: ${uploadError.message}`)
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('item-images')
+      .getPublicUrl(filePath)
+
+    currentImages.push(publicUrl)
+  }
+
+  // Update item
+  const { data, error } = await supabase
+    .from('items')
+    .update({ images: currentImages })
+    .eq('id', itemId)
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to update item: ${error.message}`)
+  return data
+}
+
+// Posts and Publications (direct Supabase)
+export async function getSavedPosts(): Promise<Post[]> {
+  const { data, error } = await supabase
+    .from('posts')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(`Failed to fetch posts: ${error.message}`)
+  return data || []
+}
+
+export async function savePost(
+  itemIds: string[],
+  description?: string,
+  collageUrl?: string
+): Promise<Post> {
+  const { data, error } = await supabase
+    .from('posts')
+    .insert({
+      item_ids: itemIds,
+      description: description || null,
+      collage_url: collageUrl || null,
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to save post: ${error.message}`)
+  return data
+}
+
+export async function getPublications(): Promise<Publication[]> {
+  const { data, error } = await supabase
+    .from('publications')
+    .select('*')
+    .order('published_at', { ascending: false })
+
+  if (error) throw new Error(`Failed to fetch publications: ${error.message}`)
+  return data || []
+}
+
+export async function createPublication(
+  itemIds: string[],
+  fbPageName: string,
+  postId?: string,
+  description?: string,
+  collageUrl?: string
+): Promise<Publication> {
+  const { data, error } = await supabase
+    .from('publications')
+    .insert({
+      post_id: postId || null,
+      item_ids: itemIds,
+      fb_page_name: fbPageName,
+      description: description || null,
+      collage_url: collageUrl || null,
+    })
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to create publication: ${error.message}`)
+  return data
+}
+
+export async function uploadCollage(collageBlob: Blob): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const timestamp = Date.now()
+  const filePath = `collages/${user.id}/${timestamp}.jpg`
+
+  const { error: uploadError } = await supabase.storage
+    .from('item-images')
+    .upload(filePath, collageBlob)
+
+  if (uploadError) throw new Error(`Failed to upload collage: ${uploadError.message}`)
+
+  const { data: { publicUrl } } = supabase.storage
+    .from('item-images')
+    .getPublicUrl(filePath)
+
+  return publicUrl
+}
+
+// ============================================
+// BACKEND CALLS (for AI - need secret API keys)
+// ============================================
 
 export async function analyzeImage(imageFile: File): Promise<AIAnalysis> {
   const formData = new FormData()
@@ -31,137 +339,18 @@ export async function analyzeImage(imageFile: File): Promise<AIAnalysis> {
   })
 
   if (!response.ok) {
-    throw new Error('AI analysis failed')
-  }
-
-  const data = await response.json()
-
-  // Backend already returns English field names
-  return {
-    title: data.title,
-    category: data.category,
-    brand: data.brand,
-    size: data.size,
-    estimatedPrice: data.estimatedPrice,
-  }
-}
-
-export async function createItem(data: ItemFormData): Promise<Item> {
-  console.log('[CREATE_ITEM] Starting...')
-  const token = await getAuthToken()
-  console.log('[CREATE_ITEM] Token obtained')
-
-  const formData = new FormData()
-
-  // Add form fields
-  formData.append('title', data.title)
-  formData.append('description', data.description)
-  formData.append('category', data.category)
-  if (data.brand) formData.append('brand', data.brand)
-  if (data.size) formData.append('size', data.size)
-  if (data.condition) formData.append('condition', data.condition)
-  if (data.material) formData.append('material', data.material)
-  if (data.color) formData.append('color', data.color)
-  formData.append('price', data.price.toString())
-
-  // Add image files
-  data.images.forEach((file) => {
-    formData.append('images', file)
-  })
-  console.log('[CREATE_ITEM] Form data prepared with', data.images.length, 'images')
-
-  const response = await fetch(`${API_BASE}/api/items`, {
-    method: 'POST',
-    body: formData,
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-
-  console.log('[CREATE_ITEM] Response status:', response.status)
-
-  if (!response.ok) {
     const error = await response.text()
-    console.error('[CREATE_ITEM] Error:', error)
-    throw new Error(`Failed to create item: ${error}`)
-  }
-
-  return response.json()
-}
-
-export async function getItems(): Promise<Item[]> {
-  const token = await getAuthToken()
-
-  const response = await fetch(`${API_BASE}/api/items`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch items')
-  }
-
-  const data = await response.json()
-  return data.items
-}
-
-export async function getItem(itemId: string): Promise<Item> {
-  const token = await getAuthToken()
-
-  const response = await fetch(`${API_BASE}/api/items/${itemId}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error('Item not found')
-  }
-
-  return response.json()
-}
-
-export async function updateItem(itemId: string, updates: Partial<ItemFormData>): Promise<Item> {
-  const token = await getAuthToken()
-  const formData = new FormData()
-
-  Object.entries(updates).forEach(([key, value]) => {
-    if (value !== undefined && value !== null) {
-      if (key === 'images') {
-        (value as File[]).forEach((file) => {
-          formData.append('images', file)
-        })
-      } else {
-        formData.append(key, String(value))
-      }
-    }
-  })
-
-  const response = await fetch(`${API_BASE}/api/items/${itemId}`, {
-    method: 'PUT',
-    body: formData,
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error('Failed to update item')
+    throw new Error(`AI analysis failed: ${error}`)
   }
 
   return response.json()
 }
 
 export async function removeBackground(imageUrl: string): Promise<Blob> {
-  // Fetch the image from URL
   const imageResponse = await fetch(imageUrl)
   const imageBlob = await imageResponse.blob()
-
-  // Create a File with explicit type
   const imageFile = new File([imageBlob], 'image.jpg', { type: 'image/jpeg' })
 
-  // Send to backend for processing
   const formData = new FormData()
   formData.append('image', imageFile)
 
@@ -177,118 +366,10 @@ export async function removeBackground(imageUrl: string): Promise<Blob> {
   return response.blob()
 }
 
-export async function updateItemImage(
-  itemId: string,
-  imageIndex: number,
-  newImageBlob: Blob
-): Promise<Item> {
-  const token = await getAuthToken()
-  const formData = new FormData()
-
-  formData.append('image_index', imageIndex.toString())
-  formData.append('image', newImageBlob, 'processed.jpg')
-
-  const response = await fetch(`${API_BASE}/api/items/${itemId}/image`, {
-    method: 'PUT',
-    body: formData,
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error('Failed to update image')
-  }
-
-  return response.json()
-}
-
-export async function deleteItemImage(
-  itemId: string,
-  imageIndex: number
-): Promise<Item> {
-  const token = await getAuthToken()
-
-  const response = await fetch(`${API_BASE}/api/items/${itemId}/image/${imageIndex}`, {
-    method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error('Failed to delete image')
-  }
-
-  return response.json()
-}
-
-export async function deleteItem(itemId: string): Promise<void> {
-  const token = await getAuthToken()
-
-  const response = await fetch(`${API_BASE}/api/items/${itemId}`, {
-    method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error('Failed to delete item')
-  }
-}
-
-export async function createCollage(imageUrls: string[], columns: number = 2): Promise<Blob> {
-  const response = await fetch(`${API_BASE}/api/create-collage`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      image_urls: imageUrls,
-      columns: columns,
-    }),
-  })
-
-  if (!response.ok) {
-    throw new Error('Failed to create collage')
-  }
-
-  return response.blob()
-}
-
-export async function addItemImages(
-  itemId: string,
-  images: File[]
-): Promise<Item> {
-  const token = await getAuthToken()
-  const formData = new FormData()
-
-  images.forEach((file) => {
-    formData.append('images', file)
-  })
-
-  const response = await fetch(`${API_BASE}/api/items/${itemId}/images`, {
-    method: 'POST',
-    body: formData,
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  })
-
-  if (!response.ok) {
-    throw new Error('Failed to add images')
-  }
-
-  return response.json()
-}
-
 export async function generatePostDescription(items: Item[]): Promise<string> {
   const response = await fetch(`${API_BASE}/api/generate-description`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       items: items.map(item => ({
         title: item.title,
@@ -309,116 +390,16 @@ export async function generatePostDescription(items: Item[]): Promise<string> {
   return data.description
 }
 
-export async function uploadCollage(collageBlob: Blob): Promise<string> {
-  const formData = new FormData()
-  formData.append('image', collageBlob, 'collage.jpg')
-
-  const response = await fetch(`${API_BASE}/api/upload-collage`, {
+export async function createCollage(imageUrls: string[], columns: number = 2): Promise<Blob> {
+  const response = await fetch(`${API_BASE}/api/create-collage`, {
     method: 'POST',
-    body: formData,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image_urls: imageUrls, columns }),
   })
 
   if (!response.ok) {
-    throw new Error('Failed to upload collage')
+    throw new Error('Failed to create collage')
   }
 
-  const data = await response.json()
-  return data.url
-}
-
-export async function getSavedPosts(): Promise<Post[]> {
-  const response = await fetch(`${API_BASE}/api/posts`)
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch saved posts')
-  }
-
-  const data = await response.json()
-  return data.posts
-}
-
-export async function savePost(
-  itemIds: string[],
-  description?: string,
-  collageUrl?: string
-): Promise<Post> {
-  const response = await fetch(`${API_BASE}/api/posts`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      item_ids: itemIds,
-      description: description || null,
-      collage_url: collageUrl || null,
-    }),
-  })
-
-  if (!response.ok) {
-    throw new Error('Failed to save post')
-  }
-
-  return response.json()
-}
-
-export async function updateItemsStatus(
-  itemIds: string[],
-  status: ItemStatus
-): Promise<void> {
-  const token = await getAuthToken()
-
-  const response = await fetch(`${API_BASE}/api/items/status`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      item_ids: itemIds,
-      status: status,
-    }),
-  })
-
-  if (!response.ok) {
-    throw new Error('Failed to update items status')
-  }
-}
-
-export async function getPublications(): Promise<Publication[]> {
-  const response = await fetch(`${API_BASE}/api/publications`)
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch publications')
-  }
-
-  const data = await response.json()
-  return data.publications
-}
-
-export async function createPublication(
-  itemIds: string[],
-  fbPageName: string,
-  postId?: string,
-  description?: string,
-  collageUrl?: string
-): Promise<Publication> {
-  const response = await fetch(`${API_BASE}/api/publications`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      post_id: postId || null,
-      item_ids: itemIds,
-      fb_page_name: fbPageName,
-      description: description || null,
-      collage_url: collageUrl || null,
-    }),
-  })
-
-  if (!response.ok) {
-    throw new Error('Failed to record publication')
-  }
-
-  return response.json()
+  return response.blob()
 }
