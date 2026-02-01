@@ -40,7 +40,53 @@ export async function pickMultipleFromGallery(): Promise<GalleryPhoto[]> {
   return result.photos;
 }
 
-// Convert Photo or GalleryPhoto to File for upload
+// Resize image to max dimension while maintaining aspect ratio
+async function resizeImage(blob: Blob, maxSize: number = 1200, quality: number = 0.8): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+
+      // Only resize if larger than maxSize
+      if (width > maxSize || height > maxSize) {
+        if (width > height) {
+          height = (height / width) * maxSize;
+          width = maxSize;
+        } else {
+          width = (width / height) * maxSize;
+          height = maxSize;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'));
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (resizedBlob) => {
+          if (resizedBlob) {
+            resolve(resizedBlob);
+          } else {
+            reject(new Error('Could not resize image'));
+          }
+        },
+        'image/jpeg',
+        quality
+      );
+    };
+    img.onerror = () => reject(new Error('Could not load image'));
+    img.src = URL.createObjectURL(blob);
+  });
+}
+
+// Convert Photo or GalleryPhoto to File for upload (with compression)
 export async function photoToFile(photo: Photo | GalleryPhoto, filename?: string): Promise<File> {
   if (!photo.webPath) {
     throw new Error('No web path available for photo');
@@ -48,9 +94,12 @@ export async function photoToFile(photo: Photo | GalleryPhoto, filename?: string
 
   const response = await fetch(photo.webPath);
   const blob = await response.blob();
-  const format = 'format' in photo ? photo.format : 'jpeg';
-  const name = filename || `photo_${Date.now()}.${format || 'jpeg'}`;
-  return new File([blob], name, { type: `image/${format || 'jpeg'}` });
+
+  // Resize to max 1200px and compress to 80% quality
+  const resizedBlob = await resizeImage(blob, 1200, 0.8);
+
+  const name = filename || `photo_${Date.now()}.jpeg`;
+  return new File([resizedBlob], name, { type: 'image/jpeg' });
 }
 
 // Create Ormar album if it doesn't exist
