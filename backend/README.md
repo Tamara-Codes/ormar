@@ -57,3 +57,7 @@ Run SQL from `../database-schema.sql` in Supabase SQL editor:
 - Auto-reload enabled with `--reload` flag
 - CORS configured for localhost:5173 and localhost:3000
 - Temp files cleaned up automatically after image processing
+
+
+
+

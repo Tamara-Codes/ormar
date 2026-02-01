@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import type { User } from '@supabase/supabase-js'
-import { getCurrentUser, onAuthStateChange, signIn, signUp, signOut, signInWithGoogle } from '../lib/auth'
+import { getCurrentUser, onAuthStateChange, signIn, signUp, signOut, signInWithGoogle, initializeGoogleAuth } from '../lib/auth'
 
 interface AuthContextType {
   user: User | null
@@ -18,6 +18,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Initialize Google Auth for native platforms
+    initializeGoogleAuth()
+
     // Check current user on mount
     getCurrentUser().then((user) => {
       setUser(user)
