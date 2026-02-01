@@ -87,11 +87,27 @@ export function LoginPage() {
     if (error.includes('Invalid email')) {
       return 'Nevažeća email adresa'
     }
+    if (error.toLowerCase().includes('cancel')) {
+      return '' // Don't show error when user cancels
+    }
+    if (error.includes('Google sign-in failed')) {
+      return 'Google prijava nije uspjela. Pokušajte ponovno.'
+    }
     return error
   }
 
   return (
     <div className="min-h-screen bg-background flex flex-col justify-center px-6 py-12">
+      {/* Full-screen loading overlay for Google sign-in */}
+      {googleLoading && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="text-center">
+            <Loader className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
+            <p className="text-foreground font-medium">Prijava u tijeku...</p>
+          </div>
+        </div>
+      )}
+
       <div className="mx-auto w-full max-w-sm">
         {/* Logo/Header */}
         <div className="text-center mb-8">
