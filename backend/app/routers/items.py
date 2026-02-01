@@ -8,6 +8,7 @@ import tempfile
 import os
 import logging
 from datetime import datetime
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -58,51 +59,46 @@ async def create_item(
     """Create item with photos."""
     user_id = await get_current_user(authorization)
 
-    # Upload images
-    image_urls = []
+    # Read and validate all images first
+    image_contents = []
     for idx, image_file in enumerate(images):
-        logger.info(f"[CREATE_ITEM] Processing image {idx + 1}/{len(images)}: {image_file.filename}")
+        logger.info(f"[CREATE_ITEM] Validating image {idx + 1}/{len(images)}: {image_file.filename}")
 
-        # Validate file type
         if not image_file.content_type or not image_file.content_type.startswith("image/"):
-            logger.error(f"[CREATE_ITEM] Invalid file type: {image_file.content_type}")
             raise HTTPException(status_code=400, detail="All files must be images")
 
-        # Read file
         content = await image_file.read()
         file_size_mb = len(content) / (1024 * 1024)
         logger.info(f"[CREATE_ITEM] File size: {file_size_mb:.2f} MB")
 
-        # Validate size
         if len(content) > 10 * 1024 * 1024:
-            logger.error(f"[CREATE_ITEM] File too large: {file_size_mb:.2f} MB")
             raise HTTPException(status_code=413, detail="File too large (max 10MB)")
 
-        # Save to temp file for processing
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-        logger.info(f"[CREATE_ITEM] Temp file saved: {tmp_path}")
+        image_contents.append(content)
 
-        try:
-            # Upload to Supabase Storage
-            timestamp = datetime.now().isoformat()
-            filename = f"{user_id}/{timestamp}.jpg"
-            logger.info(f"[CREATE_ITEM] Uploading to Supabase bucket 'item-images', path: {filename}")
+    # Upload all images in parallel
+    async def upload_single_image(content: bytes, idx: int) -> str:
+        timestamp = datetime.now().isoformat()
+        filename = f"{user_id}/{timestamp}_{idx}.jpg"
+        logger.info(f"[CREATE_ITEM] Uploading image {idx + 1}")
 
-            supabase.storage.from_("item-images").upload(filename, content)
-            logger.info(f"[CREATE_ITEM] Upload successful")
+        # Run sync upload in thread pool
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: supabase.storage.from_("item-images").upload(filename, content)
+        )
 
-            public_url = supabase.storage.from_("item-images").get_public_url(filename)
-            logger.info(f"[CREATE_ITEM] Public URL: {public_url}")
-            image_urls.append(public_url)
-        except Exception as e:
-            logger.error(f"[CREATE_ITEM] Upload failed: {str(e)}", exc_info=True)
-            raise
-        finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-                logger.info(f"[CREATE_ITEM] Temp file cleaned up")
+        public_url = supabase.storage.from_("item-images").get_public_url(filename)
+        logger.info(f"[CREATE_ITEM] Uploaded: {public_url}")
+        return public_url
+
+    logger.info(f"[CREATE_ITEM] Uploading {len(image_contents)} images in parallel...")
+    image_urls = await asyncio.gather(*[
+        upload_single_image(content, idx)
+        for idx, content in enumerate(image_contents)
+    ])
+    logger.info(f"[CREATE_ITEM] All uploads complete")
 
     # Insert item into database
     item_data = {
