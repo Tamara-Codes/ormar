@@ -8,8 +8,8 @@ import { Media } from '@capacitor-community/media';
 export const isNative = () => Capacitor.isNativePlatform();
 export const isAndroid = () => Capacitor.getPlatform() === 'android';
 
-// Album name for temp photos
-const ORMAR_ALBUM = 'Ormar';
+// Track saved image paths for potential deletion
+let lastSavedImagePaths: string[] = [];
 
 // Camera functions
 export async function takePhoto(): Promise<Photo> {
@@ -101,41 +101,15 @@ export async function photoToFile(photo: Photo | GalleryPhoto, filename?: string
   return new File([resizedBlob], name, { type: 'image/jpeg' });
 }
 
-// Create Ormar album if it doesn't exist
-async function ensureOrmarAlbum(): Promise<string> {
-  try {
-    const albums = await Media.getAlbums();
-    const ormarAlbum = albums.albums.find(a => a.name === ORMAR_ALBUM);
-
-    if (ormarAlbum) {
-      return ormarAlbum.identifier;
-    }
-
-    // Create the album
-    await Media.createAlbum({ name: ORMAR_ALBUM });
-    const newAlbums = await Media.getAlbums();
-    const newOrmarAlbum = newAlbums.albums.find(a => a.name === ORMAR_ALBUM);
-
-    if (newOrmarAlbum) {
-      return newOrmarAlbum.identifier;
-    }
-
-    throw new Error('Could not create Ormar album');
-  } catch (error) {
-    console.error('Error ensuring Ormar album:', error);
-    throw error;
-  }
-}
-
-// Save multiple images to Ormar album for FB posting
-export async function saveImagesToOrmarAlbum(imageUrls: string[]): Promise<void> {
+// Save multiple images to gallery (will appear as recent photos)
+export async function saveImagesToGallery(imageUrls: string[]): Promise<void> {
   if (!isNative()) {
     return;
   }
 
-  try {
-    const albumIdentifier = await ensureOrmarAlbum();
+  lastSavedImagePaths = [];
 
+  try {
     for (let i = 0; i < imageUrls.length; i++) {
       const imageUrl = imageUrls[i];
       const response = await fetch(imageUrl);
@@ -149,10 +123,15 @@ export async function saveImagesToOrmarAlbum(imageUrls: string[]): Promise<void>
         directory: Directory.Cache,
       });
 
-      await Media.savePhoto({
+      // Save to gallery without album - appears in recent photos
+      const result = await Media.savePhoto({
         path: savedFile.uri,
-        albumIdentifier,
       });
+
+      // Track the saved path for potential deletion
+      if (result.filePath) {
+        lastSavedImagePaths.push(result.filePath);
+      }
 
       // Clean up cache file
       try {
@@ -162,20 +141,41 @@ export async function saveImagesToOrmarAlbum(imageUrls: string[]): Promise<void>
       }
     }
   } catch (error) {
-    console.error('Error saving images to album:', error);
+    console.error('Error saving images to gallery:', error);
     throw error;
   }
 }
 
-// Clear Ormar album - note: Android doesn't allow apps to delete gallery photos without user consent
-// The images will remain in the Ormar album but this is expected behavior
-export async function clearOrmarAlbum(): Promise<void> {
-  if (!isNative()) {
-    return;
+// Delete the last saved images from gallery
+export async function deleteLastSavedImages(): Promise<{ deleted: number; failed: number }> {
+  if (!isNative() || lastSavedImagePaths.length === 0) {
+    return { deleted: 0, failed: 0 };
   }
-  // Note: Deleting photos from gallery requires user consent on Android
-  // The Ormar album will persist with the shared images
-  console.log('[NATIVE] Ormar album cleanup requested - images remain in gallery');
+
+  let deleted = 0;
+  let failed = 0;
+
+  for (const filePath of lastSavedImagePaths) {
+    try {
+      // On Android, filePath is the actual filesystem path
+      // Use Filesystem plugin to delete
+      await Filesystem.deleteFile({ path: filePath });
+      deleted++;
+    } catch (error) {
+      console.error('Failed to delete image:', filePath, error);
+      failed++;
+    }
+  }
+
+  // Clear the tracked paths
+  lastSavedImagePaths = [];
+
+  return { deleted, failed };
+}
+
+// Get count of images pending deletion
+export function getLastSavedImagesCount(): number {
+  return lastSavedImagePaths.length;
 }
 
 // Clipboard functions

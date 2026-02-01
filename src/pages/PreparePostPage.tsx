@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Check, Loader, Sparkles, Save, ExternalLink, Copy, CheckCheck } from 'lucide-react'
 import { createCollage, getItems, generatePostDescription, uploadCollage, savePost, getSavedPosts, createPublication, getPublications } from '../lib/api'
-import { isNative, copyToClipboard, saveImagesToOrmarAlbum, openFacebook } from '../lib/native'
+import { isNative, copyToClipboard, saveImagesToGallery, deleteLastSavedImages, getLastSavedImagesCount, openFacebook } from '../lib/native'
 import type { Item, Post } from '../types'
 
 export function PreparePostPage() {
@@ -46,6 +46,8 @@ export function PreparePostPage() {
 
   // Cleanup prompt state
   const [showCleanupPrompt, setShowCleanupPrompt] = useState(false)
+  const [isDeletingImages, setIsDeletingImages] = useState(false)
+  const [savedImagesCount, setSavedImagesCount] = useState(0)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -203,6 +205,17 @@ export function PreparePostPage() {
     publishedItemIds.current = Array.from(selectedItemIds)
     waitingForFbReturn.current = true
 
+    // Copy description to clipboard if exists
+    if (description) {
+      try {
+        await copyToClipboard(description)
+        setCopiedToClipboard(true)
+        setTimeout(() => setCopiedToClipboard(false), 2000)
+      } catch (error) {
+        console.error('Failed to copy description:', error)
+      }
+    }
+
     if (isNative()) {
       try {
         // Collect all images to save: collage + all selected item images
@@ -218,9 +231,9 @@ export function PreparePostPage() {
           imagesToSave.push(...item.images)
         }
 
-        // Save all images to Ormar album
+        // Save all images to gallery (will appear as recent)
         if (imagesToSave.length > 0) {
-          await saveImagesToOrmarAlbum(imagesToSave)
+          await saveImagesToGallery(imagesToSave)
         }
 
         // Open Facebook directly
@@ -267,9 +280,13 @@ export function PreparePostPage() {
       publishedItemIds.current = []
       currentPostId.current = null
 
-      // Show cleanup prompt on native
+      // Show cleanup prompt on native if images were saved
       if (isNative()) {
-        setShowCleanupPrompt(true)
+        const count = getLastSavedImagesCount()
+        if (count > 0) {
+          setSavedImagesCount(count)
+          setShowCleanupPrompt(true)
+        }
       }
     } catch (error) {
       console.error('Failed to record publication:', error)
@@ -285,6 +302,27 @@ export function PreparePostPage() {
     setCustomFbPage('')
     publishedItemIds.current = []
     currentPostId.current = null
+  }
+
+  const handleDeleteGalleryImages = async () => {
+    setIsDeletingImages(true)
+    try {
+      const result = await deleteLastSavedImages()
+      console.log(`Deleted ${result.deleted} images, ${result.failed} failed`)
+
+      // If some deletions failed, inform the user
+      if (result.failed > 0 && result.deleted === 0) {
+        // All deletions failed - likely Android permission issue
+        alert('Slike nije moguće automatski obrisati. Molimo obriši ih ručno iz galerije.')
+      }
+    } catch (error) {
+      console.error('Error deleting images:', error)
+      alert('Greška pri brisanju slika. Molimo obriši ih ručno iz galerije.')
+    } finally {
+      setIsDeletingImages(false)
+      setShowCleanupPrompt(false)
+      setSavedImagesCount(0)
+    }
   }
 
   const handleLoadSavedPost = (post: Post) => {
@@ -687,25 +725,33 @@ export function PreparePostPage() {
             <h3 className="text-lg font-bold text-center mb-2">
               Objava spremljena!
             </h3>
+            <p className="text-sm text-muted-foreground text-center mb-2">
+              {savedImagesCount} {savedImagesCount === 1 ? 'slika je spremljena' : 'slike su spremljene'} u galeriju.
+            </p>
             <p className="text-sm text-muted-foreground text-center mb-6">
-              Slike su spremljene u "Ormar" album u galeriji. Možeš ih obrisati ako više nisu potrebne.
+              Želiš li ih obrisati iz galerije? Slike ostaju dostupne u aplikaciji i možeš ih ponovo skinuti kad god trebaš.
             </p>
             <div className="flex gap-3">
               <button
-                onClick={() => setShowCleanupPrompt(false)}
-                className="flex-1 py-2.5 border border-border rounded-lg font-medium hover:bg-muted transition-colors"
-              >
-                Preskoči
-              </button>
-              <button
                 onClick={() => {
                   setShowCleanupPrompt(false)
-                  // Open gallery app - this will open the default gallery
-                  window.location.href = 'content://media/internal/images/media'
+                  setSavedImagesCount(0)
                 }}
-                className="flex-1 py-2.5 bg-primary text-white rounded-lg font-medium hover:opacity-90 transition-opacity"
+                disabled={isDeletingImages}
+                className="flex-1 py-2.5 border border-border rounded-lg font-medium hover:bg-muted transition-colors disabled:opacity-50"
               >
-                Otvori galeriju
+                Zadrži slike
+              </button>
+              <button
+                onClick={handleDeleteGalleryImages}
+                disabled={isDeletingImages}
+                className="flex-1 py-2.5 bg-red-500 text-white rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isDeletingImages ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : (
+                  'Obriši slike'
+                )}
               </button>
             </div>
           </div>
