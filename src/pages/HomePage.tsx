@@ -147,28 +147,7 @@ export function HomePage() {
         {/* Top bar with logo and profile */}
         <div className="flex items-center justify-between px-4 py-2">
           <div className="flex items-center gap-2">
-            {/* Dresser logo */}
-            <svg
-              className="w-8 h-8 text-primary"
-              viewBox="0 0 32 32"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              {/* Dresser frame */}
-              <rect x="4" y="4" width="24" height="24" rx="2" stroke="currentColor" strokeWidth="2" fill="none" />
-              {/* Top doors */}
-              <line x1="16" y1="4" x2="16" y2="16" stroke="currentColor" strokeWidth="2" />
-              {/* Middle shelf */}
-              <line x1="4" y1="16" x2="28" y2="16" stroke="currentColor" strokeWidth="2" />
-              {/* Bottom drawers */}
-              <line x1="4" y1="22" x2="28" y2="22" stroke="currentColor" strokeWidth="2" />
-              {/* Door handles */}
-              <circle cx="12" cy="10" r="1.5" fill="currentColor" />
-              <circle cx="20" cy="10" r="1.5" fill="currentColor" />
-              {/* Drawer handles */}
-              <line x1="13" y1="19" x2="19" y2="19" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              <line x1="13" y1="25" x2="19" y2="25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
+            <img src="/logo.png" alt="My Closet" className="w-8 h-8 object-contain" />
             <span className="text-lg font-bold text-foreground">My Closet</span>
           </div>
           <div className="flex items-center gap-2">

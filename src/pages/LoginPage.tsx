@@ -112,24 +112,9 @@ export function LoginPage() {
         {/* Logo/Header */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
-            <svg
-              className="w-16 h-16 text-primary"
-              viewBox="0 0 32 32"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect x="4" y="4" width="24" height="24" rx="2" stroke="currentColor" strokeWidth="2" fill="none" />
-              <line x1="16" y1="4" x2="16" y2="16" stroke="currentColor" strokeWidth="2" />
-              <line x1="4" y1="16" x2="28" y2="16" stroke="currentColor" strokeWidth="2" />
-              <line x1="4" y1="22" x2="28" y2="22" stroke="currentColor" strokeWidth="2" />
-              <circle cx="12" cy="10" r="1.5" fill="currentColor" />
-              <circle cx="20" cy="10" r="1.5" fill="currentColor" />
-              <line x1="13" y1="19" x2="19" y2="19" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              <line x1="13" y1="25" x2="19" y2="25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
+            <img src="/logo.png" alt="Closette" className="w-32 h-32 object-contain" />
           </div>
-          <h1 className="text-3xl font-bold text-foreground">My Closet</h1>
-          <p className="text-muted-foreground mt-2">Organiziraj i prodaj svoju odjeću</p>
+          <h1 className="text-3xl font-bold text-foreground">Closette</h1>
         </div>
 
         {/* Google Sign In Button */}
