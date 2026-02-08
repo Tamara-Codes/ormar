@@ -12,23 +12,40 @@ logger = logging.getLogger(__name__)
 genai.configure(api_key=GEMINI_API_KEY)
 logger.info("[GEMINI] Gemini API configured")
 
-PROMPT = """Analiziraj fotografiju proizvoda. Vrati odgovor kao JSON objekat sa sljedećim poljima:
+DEFAULT_CATEGORIES = [
+    {"value": "odjeca", "label": "Odjeća"},
+    {"value": "obuca", "label": "Obuća"},
+    {"value": "oprema", "label": "Oprema"},
+    {"value": "igracke", "label": "Igračke"},
+]
 
-{
+
+def build_prompt(categories: list[dict] | None) -> str:
+    """Build prompt with a dynamic category list."""
+    allowed = categories if categories else DEFAULT_CATEGORIES
+    categories_json = json.dumps(allowed, ensure_ascii=False)
+
+    return f"""Analiziraj fotografiju proizvoda. Vrati odgovor kao JSON objekat sa sljedećim poljima:
+
+{{
   "naslov": "Kratak naslov (maksimalno 3 riječi)",
-  "kategorija": "odjeca|obuca|oprema|igracke",
+  "kategorija": "Jedna od vrijednosti iz liste dostupnih kategorija",
   "brend": "Ime brenda ili null ako nije vidljivo",
   "velicina": "Veličina ili null ako nije vidljiva",
   "cijena": "Procjena u eurima kao broj (npr. 25.00) ili null ako nije sigurna"
-}
+}}
+
+Dostupne kategorije (value + label):
+{categories_json}
 
 Pravila:
+- Kategorija: MORA biti točno jedan od "value" iz liste dostupnih kategorija
 - Naslov: MORA biti maksimalno 3 riječi, npr. "Zimska jakna Nike" ili "Tenisice Adidas"
 - Cijena: realna hrvatska cijena za rabljeno stanje
 - Vrati SAMO JSON, bez dodatnog teksta"""
 
 
-async def analyze_image(image_path: str) -> AIAnalysis:
+async def analyze_image(image_path: str, categories: list[dict] | None = None) -> AIAnalysis:
     """Analyze image using Gemini Vision API and return structured analysis."""
     logger.info(f"[GEMINI] Starting image analysis for: {image_path}")
 
@@ -44,7 +61,8 @@ async def analyze_image(image_path: str) -> AIAnalysis:
 
     # Call Gemini API (async)
     logger.info("[GEMINI] Calling Gemini API with image and prompt...")
-    response = await model.generate_content_async([PROMPT, img])
+    prompt = build_prompt(categories)
+    response = await model.generate_content_async([prompt, img])
     logger.info(f"[GEMINI] Gemini response received. Text length: {len(response.text)}")
     logger.info(f"[GEMINI] Raw response: {response.text[:500]}")
 
@@ -71,9 +89,11 @@ async def analyze_image(image_path: str) -> AIAnalysis:
     return analysis
 
 
-async def generate_post_description(items: list[dict]) -> str:
-    """Generate a Facebook post description based on items."""
+async def generate_post_description(items: list[dict], group_rules: str | None = None) -> str:
+    """Generate a Facebook post description based on items and optional group rules."""
     logger.info(f"[GEMINI] Generating post description for {len(items)} items")
+    if group_rules:
+        logger.info(f"[GEMINI] Using group rules: {group_rules[:100]}...")
 
     model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
@@ -90,17 +110,31 @@ async def generate_post_description(items: list[dict]) -> str:
         if item.get('price'):
             items_text += f", cijena: {item['price']}€"
 
-    prompt = f"""Napiši kratak, privlačan opis za Facebook post za prodaju sljedećih artikala:
-{items_text}
-
-Pravila:
-- Piši na hrvatskom jeziku
+    # Build base rules
+    base_rules = """- Piši na hrvatskom jeziku
 - Budi prijateljski i pozitivan
 - Spomeni ključne detalje (brend, veličinu, stanje)
 - Dodaj poziv na akciju (npr. "Javite se u inbox!")
 - Maksimalno 3-4 rečenice
 - Ne koristi hashtage
-- Ne ponavljaj cijene, samo ih spomeni ako ima više artikala
+- Ne ponavljaj cijene, samo ih spomeni ako ima više artikala"""
+
+    # Add group-specific rules if provided
+    if group_rules:
+        rules_section = f"""
+Pravila grupe (MORAŠ slijediti ova pravila):
+{group_rules}
+
+Opća pravila:
+{base_rules}"""
+    else:
+        rules_section = f"""
+Pravila:
+{base_rules}"""
+
+    prompt = f"""Napiši kratak, privlačan opis za Facebook post za prodaju sljedećih artikala:
+{items_text}
+{rules_section}
 
 Vrati SAMO tekst opisa, bez dodatnih objašnjenja."""
 

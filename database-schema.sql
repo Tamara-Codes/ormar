@@ -12,7 +12,7 @@ CREATE TABLE items (
 
   -- Manual fields
   condition TEXT NOT NULL CHECK (condition IN ('novo', 'kao_novo', 'dobro', 'koristeno')),
-  material TEXT CHECK (material IN ('pamuk', 'vuna', 'poliester', 'mješavina')),
+  material TEXT CHECK (material IN ('pamuk', 'vuna', 'poliester', 'mješavina', 'lan', 'svila', 'koza', 'traper', 'viskoza', 'akril', 'najlon', 'elastan')),
   color TEXT,
 
   -- Pricing & status

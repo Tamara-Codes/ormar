@@ -1,7 +1,9 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Checkbox } from './ui/checkbox'
 import { Input } from './ui/input'
 import { Button } from './ui/button'
-import { CONDITION_LABELS, MATERIAL_LABELS, type FilterState, type Condition, type Material } from '../types'
+import { getDefaultConditions, getDefaultMaterials } from '../lib/lookups'
+import type { FilterState, Condition, Material } from '../types'
 
 interface FilterModalProps {
   filters: FilterState
@@ -22,6 +24,10 @@ export function FilterModal({
   onCancel,
   onClearAll,
 }: FilterModalProps) {
+  const [brandQuery, setBrandQuery] = useState('')
+  const [conditions, setConditions] = useState<Array<{ value: string; label: string }>>([])
+  const [materials, setMaterials] = useState<Array<{ value: string; label: string }>>([])
+  const [lookupsError, setLookupsError] = useState('')
   // Guard against undefined filters during dialog animation
   if (!filters?.sizes || !filters?.brands || !filters?.conditions || !filters?.materials) {
     return null
@@ -55,10 +61,32 @@ export function FilterModal({
     onFiltersChange({ ...filters, materials: newMaterials })
   }
 
-  const handleBrandSearch = () => {
-    // For now, just filter the displayed brands
-    // In a real app, you'd implement autocomplete
-  }
+  useEffect(() => {
+    const loadLookups = async () => {
+      try {
+        const [conditionsData, materialsData] = await Promise.all([
+          getDefaultConditions(),
+          getDefaultMaterials(),
+        ])
+        setConditions(conditionsData)
+        setMaterials(materialsData)
+        setLookupsError('')
+      } catch (err) {
+        console.error('Failed to load conditions/materials:', err)
+        setConditions([])
+        setMaterials([])
+        setLookupsError('Nije moguće učitati stanja i materijale')
+      }
+    }
+
+    void loadLookups()
+  }, [])
+
+  const filteredBrands = useMemo(() => {
+    const query = brandQuery.trim().toLowerCase()
+    if (!query) return availableBrands
+    return availableBrands.filter((brand) => brand.toLowerCase().includes(query))
+  }, [availableBrands, brandQuery])
 
   const activeCount =
     filters.sizes.length +
@@ -68,9 +96,10 @@ export function FilterModal({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto space-y-6 pb-4">
-        {/* Size Section */}
-        <div>
+      <div className="flex-1 overflow-y-auto pb-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Size Section */}
+          <div>
           <h3 className="text-sm font-medium mb-3">Veličina</h3>
           <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
             {availableSizes.map((size) => (
@@ -83,63 +112,78 @@ export function FilterModal({
               </label>
             ))}
           </div>
-          <div className="border-b border-border mt-4 mb-4" />
-        </div>
+          </div>
 
-        {/* Brand Section */}
-        <div>
-          <h3 className="text-sm font-medium mb-3">Brend</h3>
-          <Input
-            placeholder="Pretraži brendove..."
-            onChange={() => handleBrandSearch()}
-            className="mb-3"
-          />
-          <div className="space-y-2 max-h-40 overflow-y-auto">
-            {availableBrands.map((brand) => (
-              <label key={brand} className="flex items-center gap-2 cursor-pointer">
-                <Checkbox
-                  checked={filters.brands.includes(brand)}
-                  onCheckedChange={() => handleBrandToggle(brand)}
-                />
-                <span className="text-sm">{brand}</span>
-              </label>
-            ))}
+          {/* Brand Section */}
+          <div>
+            <h3 className="text-sm font-medium mb-3">Brend</h3>
+            <Input
+              placeholder="Pretraži brendove..."
+              value={brandQuery}
+              onChange={(e) => setBrandQuery(e.target.value)}
+              className="mb-10"
+            />
+            <div className="space-y-2 max-h-40 overflow-y-auto pt-2">
+              {filteredBrands.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nema rezultata</p>
+              ) : (
+                filteredBrands.map((brand) => (
+                  <label key={brand} className="flex items-center gap-2 cursor-pointer">
+                    <Checkbox
+                      checked={filters.brands.includes(brand)}
+                      onCheckedChange={() => handleBrandToggle(brand)}
+                    />
+                    <span className="text-sm">{brand}</span>
+                  </label>
+                ))
+              )}
+            </div>
           </div>
-          <div className="border-b border-border mt-4 mb-4" />
-        </div>
 
-        {/* Condition Section */}
-        <div>
-          <h3 className="text-sm font-medium mb-3">Stanje</h3>
-          <div className="space-y-2">
-            {(Object.keys(CONDITION_LABELS) as Condition[]).map((condition) => (
-              <label key={condition} className="flex items-center gap-2 cursor-pointer">
-                <Checkbox
-                  checked={filters.conditions.includes(condition)}
-                  onCheckedChange={() => handleConditionToggle(condition)}
-                />
-                <span className="text-sm">{CONDITION_LABELS[condition]}</span>
-              </label>
-            ))}
+          {/* Condition Section */}
+          <div>
+            <h3 className="text-sm font-medium mb-3">Stanje</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {lookupsError ? (
+                <p className="text-sm text-muted-foreground">{lookupsError}</p>
+              ) : conditions.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nema dostupnih stanja</p>
+              ) : (
+                conditions.map((condition) => (
+                  <label key={condition.value} className="flex items-center gap-2 cursor-pointer">
+                    <Checkbox
+                      checked={filters.conditions.includes(condition.value as Condition)}
+                      onCheckedChange={() => handleConditionToggle(condition.value as Condition)}
+                    />
+                    <span className="text-sm">{condition.label}</span>
+                  </label>
+                ))
+              )}
+            </div>
           </div>
-          <div className="border-b border-border mt-4 mb-4" />
-        </div>
 
-        {/* Material Section */}
-        <div>
-          <h3 className="text-sm font-medium mb-3">Materijal</h3>
-          <div className="space-y-2">
-            {(Object.keys(MATERIAL_LABELS) as Material[]).map((material) => (
-              <label key={material} className="flex items-center gap-2 cursor-pointer">
-                <Checkbox
-                  checked={filters.materials.includes(material)}
-                  onCheckedChange={() => handleMaterialToggle(material)}
-                />
-                <span className="text-sm">{MATERIAL_LABELS[material]}</span>
-              </label>
-            ))}
+          {/* Material Section */}
+          <div>
+            <h3 className="text-sm font-medium mb-3">Materijal</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {lookupsError ? (
+                <p className="text-sm text-muted-foreground">{lookupsError}</p>
+              ) : materials.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nema dostupnih materijala</p>
+              ) : (
+                materials.map((material) => (
+                  <label key={material.value} className="flex items-center gap-2 cursor-pointer">
+                    <Checkbox
+                      checked={filters.materials.includes(material.value as Material)}
+                      onCheckedChange={() => handleMaterialToggle(material.value as Material)}
+                    />
+                    <span className="text-sm">{material.label}</span>
+                  </label>
+                ))
+              )}
+            </div>
           </div>
-          </div>
+        </div>
       </div>
 
       {/* Footer */}

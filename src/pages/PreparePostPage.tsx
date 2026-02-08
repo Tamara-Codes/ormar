@@ -1,8 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Check, Loader, Sparkles, Save, ExternalLink, Copy, CheckCheck } from 'lucide-react'
-import { createCollage, getItems, generatePostDescription, uploadCollage, savePost, getSavedPosts, createPublication, getPublications } from '../lib/api'
+import { createCollage, getItems, generatePostDescription, uploadCollage, savePost, updatePost, getSavedPosts, createPublication, getPublications } from '../lib/api'
 import { isNative, copyToClipboard, saveImagesToGallery, deleteLastSavedImages, getLastSavedImagesCount, openFacebook } from '../lib/native'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
+import { getPostGroups, getPostGroup } from '../lib/postGroups'
+import type { PostGroup } from '../lib/postGroups'
+import { CategorySettingsDialog } from '../components/CategorySettingsDialog'
 import type { Item, Post } from '../types'
 
 export function PreparePostPage() {
@@ -14,6 +18,10 @@ export function PreparePostPage() {
   // Saved posts state
   const [savedPosts, setSavedPosts] = useState<Post[]>([])
   const [showSavedPosts, setShowSavedPosts] = useState(true)
+  const [currentSavedPostId, setCurrentSavedPostId] = useState<string | null>(null)
+  const [initialDescription, setInitialDescription] = useState('')
+  const [initialCollageUrl, setInitialCollageUrl] = useState<string | null>(null)
+  const [initialItemIds, setInitialItemIds] = useState<string[]>([])
 
   // Description state
   const [description, setDescription] = useState('')
@@ -27,14 +35,10 @@ export function PreparePostPage() {
 
   // Save state
   const [isSaving, setIsSaving] = useState(false)
-  const [saveSuccess, setSaveSuccess] = useState(false)
   const [saveError, setSaveError] = useState('')
 
   // Publish confirmation popup state
   const [showPublishConfirm, setShowPublishConfirm] = useState(false)
-  const [publishStep, setPublishStep] = useState<'confirm' | 'select-page'>('confirm')
-  const [selectedFbPage, setSelectedFbPage] = useState('')
-  const [customFbPage, setCustomFbPage] = useState('')
   const [isRecordingPublication, setIsRecordingPublication] = useState(false)
   const [knownFbPages, setKnownFbPages] = useState<string[]>([])
   const waitingForFbReturn = useRef(false)
@@ -49,16 +53,33 @@ export function PreparePostPage() {
   const [isDeletingImages, setIsDeletingImages] = useState(false)
   const [savedImagesCount, setSavedImagesCount] = useState(0)
 
+  // Post Groups state
+  const [postGroups, setPostGroups] = useState<PostGroup[]>([])
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('__none__')
+  const [isGroupSettingsOpen, setIsGroupSettingsOpen] = useState(false)
+
+
+  const loadPostGroups = async () => {
+    try {
+      const groups = await getPostGroups()
+      setPostGroups(groups)
+    } catch (err) {
+      console.error('Failed to load post groups:', err)
+    }
+  }
+
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [items, posts, publications] = await Promise.all([
+        const [items, posts, publications, groups] = await Promise.all([
           getItems(),
           getSavedPosts(),
           getPublications(),
+          getPostGroups(),
         ])
         setAllItems(items)
         setSavedPosts(posts)
+        setPostGroups(groups)
         // Extract unique page names from publications
         const pageNames = Array.from(new Set(publications.map(p => p.fb_page_name)))
         setKnownFbPages(pageNames)
@@ -70,6 +91,15 @@ export function PreparePostPage() {
     }
     fetchData()
   }, [])
+
+  const handleGroupCreated = async (groupId: string) => {
+    // Reload groups to get the new one
+    await loadPostGroups()
+    // Select the newly created group
+    setSelectedGroupId(groupId)
+    // Close the settings dialog
+    setIsGroupSettingsOpen(false)
+  }
 
   // Listen for when user returns from Facebook
   useEffect(() => {
@@ -85,6 +115,14 @@ export function PreparePostPage() {
   }, [])
 
   const selectedItems = allItems.filter(item => selectedItemIds.has(item.id))
+  const currentItemIds = Array.from(selectedItemIds).sort()
+  const initialItemIdsSorted = [...initialItemIds].sort()
+  const hasItemChanges = currentItemIds.length !== initialItemIdsSorted.length ||
+    currentItemIds.some((id, index) => id !== initialItemIdsSorted[index])
+  const hasDescriptionChanges = description !== initialDescription
+  const hasCollageChanges = collageBlob !== null || collageUrl !== initialCollageUrl
+  const hasUnsavedChanges = hasItemChanges || hasDescriptionChanges || hasCollageChanges
+  const showSavedState = currentSavedPostId !== null && !hasUnsavedChanges
 
   const toggleItemSelection = (itemId: string) => {
     setSelectedItemIds(prev => {
@@ -100,7 +138,6 @@ export function PreparePostPage() {
     setSelectedImages(new Set())
     setCollageUrl(null)
     setCollageBlob(null)
-    setSaveSuccess(false)
   }
 
   // Get all images from selected items
@@ -125,15 +162,22 @@ export function PreparePostPage() {
     // Clear existing collage when selection changes
     setCollageUrl(null)
     setCollageBlob(null)
-    setSaveSuccess(false)
   }
 
   const handleGenerateDescription = async () => {
     setIsGeneratingDescription(true)
     try {
-      const generatedDesc = await generatePostDescription(selectedItems)
+      // Get group rules if a group is selected (and it's not the "no group" or "add new" option)
+      let groupRules: string | undefined
+      if (selectedGroupId && selectedGroupId !== '__none__' && selectedGroupId !== '__add_new__') {
+        const group = await getPostGroup(selectedGroupId)
+        if (group) {
+          groupRules = group.rules
+        }
+      }
+      
+      const generatedDesc = await generatePostDescription(selectedItems, groupRules)
       setDescription(generatedDesc)
-      setSaveSuccess(false)
     } catch (error) {
       console.error('Failed to generate description:', error)
     } finally {
@@ -152,7 +196,6 @@ export function PreparePostPage() {
       const url = URL.createObjectURL(blob)
       setCollageUrl(url)
       setCollageBlob(blob)
-      setSaveSuccess(false)
     } catch (error) {
       console.error('Failed to create collage:', error)
     } finally {
@@ -172,15 +215,32 @@ export function PreparePostPage() {
       }
 
       // Save post to database
-      const newPost = await savePost(
-        Array.from(selectedItemIds),
-        description || undefined,
-        uploadedCollageUrl
-      )
+      const itemIds = Array.from(selectedItemIds)
+      const normalizedDescription = description || null
+      const nextCollageUrl = uploadedCollageUrl ?? collageUrl ?? null
 
-      // Add to saved posts list
-      setSavedPosts(prev => [newPost, ...prev])
-      setSaveSuccess(true)
+      const savedPost = currentSavedPostId
+        ? await updatePost(currentSavedPostId, {
+          itemIds,
+          description: normalizedDescription,
+          collageUrl: nextCollageUrl,
+        })
+        : await savePost(itemIds, normalizedDescription || undefined, nextCollageUrl || undefined)
+
+      // Keep local state in sync with saved values
+      setCollageUrl(savedPost.collage_url || null)
+      setCurrentSavedPostId(savedPost.id)
+      setInitialDescription(savedPost.description || '')
+      setInitialCollageUrl(savedPost.collage_url || null)
+      setInitialItemIds(savedPost.item_ids || [])
+
+      setSavedPosts(prev => {
+        const existingIndex = prev.findIndex(post => post.id === savedPost.id)
+        if (existingIndex === -1) return [savedPost, ...prev]
+        const updated = [...prev]
+        updated[existingIndex] = savedPost
+        return updated
+      })
     } catch (error) {
       console.error('Failed to save post:', error)
       setSaveError(error instanceof Error ? error.message : 'Greška pri spremanju')
@@ -254,21 +314,60 @@ export function PreparePostPage() {
   }
 
   const handleConfirmPublished = () => {
-    // Move to page selection step
-    setPublishStep('select-page')
+    // Use the selected group name as the Facebook page name
+    let pageName = ''
+    if (selectedGroupId && selectedGroupId !== '__none__') {
+      const selectedGroup = postGroups.find(g => g.id === selectedGroupId)
+      if (selectedGroup) {
+        pageName = selectedGroup.name
+      }
+    }
+    
+    if (pageName) {
+      // Record publication with the group name as the page
+      void handleRecordPublicationWithPage(pageName)
+    } else {
+      // If no group was selected, just close the dialog without recording
+      setShowPublishConfirm(false)
+      publishedItemIds.current = []
+      currentPostId.current = null
+    }
   }
 
-  const handleRecordPublication = async () => {
-    const pageName = selectedFbPage === '__other__' ? customFbPage.trim() : selectedFbPage
-
-    if (!pageName) return
-
+  const handleRecordPublicationWithPage = async (pageName: string) => {
     setIsRecordingPublication(true)
     try {
+      // First, save the post (like clicking the save button)
+      let postId = currentSavedPostId
+      if (!postId) {
+        // If not already saved, save it now
+        let uploadedCollageUrl: string | undefined
+        if (collageBlob) {
+          uploadedCollageUrl = await uploadCollage(collageBlob)
+        }
+        
+        const itemIds = Array.from(selectedItemIds)
+        const normalizedDescription = description || null
+        const nextCollageUrl = uploadedCollageUrl ?? collageUrl ?? null
+        
+        const savedPost = await savePost(itemIds, normalizedDescription || undefined, nextCollageUrl || undefined)
+        
+        // Update local state
+        setCollageUrl(savedPost.collage_url || null)
+        setCurrentSavedPostId(savedPost.id)
+        setInitialDescription(savedPost.description || '')
+        setInitialCollageUrl(savedPost.collage_url || null)
+        setInitialItemIds(savedPost.item_ids || [])
+        
+        setSavedPosts(prev => [savedPost, ...prev])
+        postId = savedPost.id
+      }
+      
+      // Now create the publication record
       await createPublication(
         publishedItemIds.current,
         pageName,
-        currentPostId.current || undefined,
+        postId || undefined,
         description || undefined,
         collageUrl || undefined
       )
@@ -278,9 +377,6 @@ export function PreparePostPage() {
         setKnownFbPages(prev => [...prev, pageName])
       }
       setShowPublishConfirm(false)
-      setPublishStep('confirm')
-      setSelectedFbPage('')
-      setCustomFbPage('')
       publishedItemIds.current = []
       currentPostId.current = null
 
@@ -301,9 +397,6 @@ export function PreparePostPage() {
 
   const handleCancelPublishConfirm = () => {
     setShowPublishConfirm(false)
-    setPublishStep('confirm')
-    setSelectedFbPage('')
-    setCustomFbPage('')
     publishedItemIds.current = []
     currentPostId.current = null
   }
@@ -332,15 +425,20 @@ export function PreparePostPage() {
   const handleLoadSavedPost = (post: Post) => {
     // Select the items from the saved post
     setSelectedItemIds(new Set(post.item_ids))
+    setInitialItemIds(post.item_ids || [])
+    setCurrentSavedPostId(post.id)
 
     // Load description
     setDescription(post.description || '')
+    setInitialDescription(post.description || '')
 
     // Load collage URL if exists
     if (post.collage_url) {
       setCollageUrl(post.collage_url)
+      setInitialCollageUrl(post.collage_url)
     } else {
       setCollageUrl(null)
+      setInitialCollageUrl(null)
     }
 
     // Clear collage blob since we're loading from URL
@@ -349,7 +447,6 @@ export function PreparePostPage() {
 
     // Hide saved posts section
     setShowSavedPosts(false)
-    setSaveSuccess(false)
     setSaveError('')
   }
 
@@ -429,7 +526,7 @@ export function PreparePostPage() {
             </div>
           ) : allItems.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-4">
-              Nema artikala u ormaru
+              Nema artikala u Komodusu
             </p>
           ) : (
             <div className="grid grid-cols-4 gap-2">
@@ -475,6 +572,43 @@ export function PreparePostPage() {
 
         {selectedItems.length > 0 && (
           <>
+            {/* Group Selection */}
+            <div className="border border-border rounded-lg p-4">
+              <label className="block text-sm font-medium mb-2">
+                Grupa za objavu (opcionalno)
+              </label>
+              <Select 
+                value={selectedGroupId === '__add_new__' ? '__none__' : selectedGroupId} 
+                onValueChange={(value) => {
+                  if (value === '__add_new__') {
+                    setIsGroupSettingsOpen(true)
+                  } else {
+                    setSelectedGroupId(value)
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Odaberite grupu..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Bez grupe</SelectItem>
+                  {postGroups.map((group) => (
+                    <SelectItem key={group.id} value={group.id}>
+                      {group.name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="__add_new__" className="text-primary font-medium">
+                    + Dodaj novu grupu
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {selectedGroupId && selectedGroupId !== '__none__' && selectedGroupId !== '__add_new__' && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Pravila grupe će se koristiti pri generiranju opisa
+                </p>
+              )}
+            </div>
+
             {/* Description Section */}
             <div className="border border-border rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
@@ -516,7 +650,6 @@ export function PreparePostPage() {
                 value={description}
                 onChange={(e) => {
                   setDescription(e.target.value)
-                  setSaveSuccess(false)
                   setCopiedToClipboard(false)
                 }}
                 placeholder="Napiši opis za post ili generiraj pomoću AI..."
@@ -610,12 +743,12 @@ export function PreparePostPage() {
           <div className="flex gap-3">
             <button
               onClick={handleSavePost}
-              disabled={isSaving}
+              disabled={isSaving || (showSavedState && currentSavedPostId !== null)}
               className="flex-1 py-3 border-2 border-primary text-primary rounded-lg font-medium hover:bg-primary/10 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {isSaving ? (
                 <Loader className="w-5 h-5 animate-spin" />
-              ) : saveSuccess ? (
+              ) : showSavedState ? (
                 <>
                   <Check className="w-5 h-5" />
                   Spremljeno
@@ -642,82 +775,32 @@ export function PreparePostPage() {
       {showPublishConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-background rounded-lg p-6 mx-4 max-w-sm w-full shadow-lg">
-            {publishStep === 'confirm' ? (
-              <>
-                <h3 className="text-lg font-bold text-center mb-2">
-                  Uspješno objavljeno?
-                </h3>
-                <p className="text-sm text-muted-foreground text-center mb-6">
-                  Jesi li objavio/la post na Facebook?
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={handleCancelPublishConfirm}
-                    className="flex-1 py-2.5 border border-border rounded-lg font-medium hover:bg-muted transition-colors"
-                  >
-                    Ne
-                  </button>
-                  <button
-                    onClick={handleConfirmPublished}
-                    className="flex-1 py-2.5 bg-primary text-white rounded-lg font-medium hover:opacity-90 transition-opacity"
-                  >
-                    Da
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h3 className="text-lg font-bold text-center mb-2">
-                  Gdje si objavio/la?
-                </h3>
-                <p className="text-sm text-muted-foreground text-center mb-4">
-                  Odaberi stranicu na koju si objavio/la post
-                </p>
-                <select
-                  value={selectedFbPage}
-                  onChange={(e) => {
-                    setSelectedFbPage(e.target.value)
-                    if (e.target.value !== '__other__') setCustomFbPage('')
-                  }}
-                  className="w-full px-3 py-2.5 border border-border rounded-lg mb-3 bg-background text-foreground"
-                >
-                  <option value="">Odaberi stranicu...</option>
-                  {knownFbPages.map((pageName) => (
-                    <option key={pageName} value={pageName}>{pageName}</option>
-                  ))}
-                  <option value="__other__">+ Nova stranica...</option>
-                </select>
-                {selectedFbPage === '__other__' && (
-                  <input
-                    type="text"
-                    value={customFbPage}
-                    onChange={(e) => setCustomFbPage(e.target.value)}
-                    placeholder="Upiši naziv stranice..."
-                    className="w-full px-3 py-2.5 border border-border rounded-lg mb-3 bg-background text-foreground"
-                  />
+            <h3 className="text-lg font-bold text-center mb-2">
+              Uspješno objavljeno?
+            </h3>
+            <p className="text-sm text-muted-foreground text-center mb-6">
+              Jesi li objavio/la post na Facebook?
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={handleCancelPublishConfirm}
+                disabled={isRecordingPublication}
+                className="flex-1 py-2.5 border border-border rounded-lg font-medium hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                Ne
+              </button>
+              <button
+                onClick={handleConfirmPublished}
+                disabled={isRecordingPublication}
+                className="flex-1 py-2.5 bg-primary text-white rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isRecordingPublication ? (
+                  <Loader className="w-4 h-4 animate-spin" />
+                ) : (
+                  'Da'
                 )}
-                <div className="flex gap-3 mt-4">
-                  <button
-                    onClick={handleCancelPublishConfirm}
-                    disabled={isRecordingPublication}
-                    className="flex-1 py-2.5 border border-border rounded-lg font-medium hover:bg-muted transition-colors disabled:opacity-50"
-                  >
-                    Odustani
-                  </button>
-                  <button
-                    onClick={handleRecordPublication}
-                    disabled={isRecordingPublication || (!selectedFbPage || (selectedFbPage === '__other__' && !customFbPage.trim()))}
-                    className="flex-1 py-2.5 bg-primary text-white rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    {isRecordingPublication ? (
-                      <Loader className="w-4 h-4 animate-spin" />
-                    ) : (
-                      'Spremi'
-                    )}
-                  </button>
-                </div>
-              </>
-            )}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -761,6 +844,15 @@ export function PreparePostPage() {
           </div>
         </div>
       )}
+
+      {/* Group Settings Dialog */}
+      <CategorySettingsDialog
+        open={isGroupSettingsOpen}
+        onOpenChange={setIsGroupSettingsOpen}
+        initialTab="groups"
+        onGroupCreated={handleGroupCreated}
+        onCategoriesUpdated={() => {}}
+      />
     </div>
   )
 }

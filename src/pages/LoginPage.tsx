@@ -112,9 +112,9 @@ export function LoginPage() {
         {/* Logo/Header */}
         <div className="text-center mb-8">
           <div className="flex justify-center mb-4">
-            <img src="/logo.png" alt="Closette" className="w-32 h-32 object-contain" />
+            <img src="/logo.png" alt="Komodus" className="w-32 h-32 object-contain" />
           </div>
-          <h1 className="text-3xl font-bold text-foreground">Closette</h1>
+          <h1 className="text-3xl font-bold text-foreground tracking-wider" style={{ fontFamily: "'Amatic SC', cursive" }}>Komodus</h1>
         </div>
 
         {/* Google Sign In Button */}

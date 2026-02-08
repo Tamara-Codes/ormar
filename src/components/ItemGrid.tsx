@@ -4,9 +4,10 @@ import type { Item } from '../types'
 interface ItemGridProps {
   items: Item[]
   onDeleteItem?: (item: Item) => void
+  onMarkAsSold?: (item: Item) => void
 }
 
-export function ItemGrid({ items, onDeleteItem }: ItemGridProps) {
+export function ItemGrid({ items, onDeleteItem, onMarkAsSold }: ItemGridProps) {
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -33,7 +34,7 @@ export function ItemGrid({ items, onDeleteItem }: ItemGridProps) {
   return (
     <div className="grid grid-cols-3 gap-2 auto-rows-[calc((100vh-200px)/4)]">
       {items.map((item) => (
-        <ItemCard key={item.id} item={item} onDelete={onDeleteItem} />
+        <ItemCard key={item.id} item={item} onDelete={onDeleteItem} onMarkAsSold={onMarkAsSold} />
       ))}
     </div>
   )

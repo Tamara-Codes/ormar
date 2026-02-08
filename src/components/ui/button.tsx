@@ -25,7 +25,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         ref={ref}
-        className={`${baseStyles} ${variants[variant]} ${sizes[size]}`}
+        className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className || ''}`}
         {...props}
       />
     )

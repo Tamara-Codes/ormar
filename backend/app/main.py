@@ -10,7 +10,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Ormar API", version="1.0.0")
+app = FastAPI(title="Komodus API", version="1.0.0")
 logger.info("[MAIN] FastAPI app initialized")
 
 # Enable CORS for frontend and mobile app

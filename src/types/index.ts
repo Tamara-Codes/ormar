@@ -1,29 +1,8 @@
-export type Category = 'odjeca' | 'obuca' | 'oprema' | 'igracke'
+export type Category = string
 
-export type Condition = 'novo' | 'kao_novo' | 'dobro' | 'koristeno'
+export type Condition = string
 
-export type Material = 'pamuk' | 'vuna' | 'poliester' | 'mješavina'
-
-export const CATEGORY_LABELS: Record<Category, string> = {
-  odjeca: 'Odjeća',
-  obuca: 'Obuća',
-  oprema: 'Oprema',
-  igracke: 'Igračke',
-}
-
-export const CONDITION_LABELS: Record<Condition, string> = {
-  novo: 'Novo',
-  kao_novo: 'Kao novo',
-  dobro: 'Dobro',
-  koristeno: 'Korišteno',
-}
-
-export const MATERIAL_LABELS: Record<Material, string> = {
-  pamuk: 'Pamuk',
-  vuna: 'Vuna',
-  poliester: 'Poliester',
-  mješavina: 'Mješavina',
-}
+export type Material = string
 
 export type ItemStatus = 'draft' | 'active' | 'sold'
 
@@ -32,7 +11,7 @@ export interface Item {
   title: string
   description: string
   price: number
-  category: Category
+  category: string
   size?: string
   brand?: string
   condition: Condition
@@ -46,7 +25,7 @@ export interface Item {
 
 export interface AIAnalysis {
   title: string
-  category: Category
+  category: string
   brand?: string
   size?: string
   estimatedPrice?: number
@@ -55,7 +34,7 @@ export interface AIAnalysis {
 export interface ItemFormData {
   title: string
   description: string
-  category: Category
+  category: string
   brand?: string
   size?: string
   condition?: Condition

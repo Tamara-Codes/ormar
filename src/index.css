@@ -21,6 +21,11 @@
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
     --ring: oklch(0.41 0.159 10.272);
+    --chart-1: oklch(0.646 0.222 41.116);
+    --chart-2: oklch(0.6 0.118 184.704);
+    --chart-3: oklch(0.488 0.243 264.376);
+    --chart-4: oklch(0.696 0.17 162.48);
+    --chart-5: oklch(0.7 0.2 60);
   }
 
   * {
@@ -45,5 +50,14 @@
     background-color: var(--primary);
     color: var(--primary-foreground);
   }
+}
 
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}

@@ -1,23 +1,28 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
-import { CategoryDropdown } from '../components/CategoryDropdown'
+import { CategoryTabs } from '../components/CategoryTabs'
 import { FilterButton } from '../components/FilterButton'
+import { SettingsButton } from '../components/SettingsButton'
 import { ItemGrid } from '../components/ItemGrid'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { FilterModal } from '../components/FilterModal'
+import { CategorySettingsDialog } from '../components/CategorySettingsDialog'
 import { getItems, deleteItem } from '../lib/api'
+import { markItemAsSold } from '../lib/sales'
 import { useAuth } from '../contexts/AuthContext'
-import type { Category, Item, FilterState } from '../types'
+import type { Item, FilterState } from '../types'
 
 export function HomePage() {
   const navigate = useNavigate()
   const { signOut } = useAuth()
-  const [selectedCategory, setSelectedCategory] = useState<Category | 'all'>('all')
+  const [selectedCategory, setSelectedCategory] = useState<string>('all')
   const [items, setItems] = useState<Item[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
+  const [isCategorySettingsOpen, setIsCategorySettingsOpen] = useState(false)
+  const [categoriesVersion, setCategoriesVersion] = useState(0)
 
   useEffect(() => {
     const fetchItems = async () => {
@@ -40,6 +45,8 @@ export function HomePage() {
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false)
   const [itemToDelete, setItemToDelete] = useState<Item | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [itemToSell, setItemToSell] = useState<Item | null>(null)
+  const [isMarkingSold, setIsMarkingSold] = useState(false)
 
   const emptyFilters: FilterState = {
     sizes: [],
@@ -141,14 +148,29 @@ export function HomePage() {
     }
   }
 
+  const handleMarkAsSold = async () => {
+    if (!itemToSell) return
+    setIsMarkingSold(true)
+    try {
+      await markItemAsSold(itemToSell)
+      setItems(items.filter(i => i.id !== itemToSell.id))
+      setItemToSell(null)
+    } catch (err) {
+      console.error('Failed to mark item as sold:', err)
+      setError(err instanceof Error ? err.message : 'Failed to mark item as sold')
+    } finally {
+      setIsMarkingSold(false)
+    }
+  }
+
   return (
     <div className="min-h-screen pb-24">
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm border-b border-border">
         {/* Top bar with logo and profile */}
         <div className="flex items-center justify-between px-4 py-2">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="My Closet" className="w-8 h-8 object-contain" />
-            <span className="text-lg font-bold text-foreground">My Closet</span>
+            <img src="/logo.png" alt="Komodus" className="w-8 h-8 object-contain" />
+            <span className="text-3xl font-display font-bold text-foreground tracking-wider" style={{ fontFamily: "'Amatic SC', cursive" }}>Komodus</span>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -168,14 +190,20 @@ export function HomePage() {
         </div>
 
         <div className="px-4 py-3 space-y-3">
-          <CategoryDropdown
+          <CategoryTabs
             selected={selectedCategory}
             onChange={setSelectedCategory}
+            refreshKey={categoriesVersion}
           />
-          <FilterButton
-            activeCount={activeFilterCount}
-            onClick={handleOpenModal}
-          />
+          <div className="flex items-center gap-2">
+            <FilterButton
+              activeCount={activeFilterCount}
+              onClick={handleOpenModal}
+            />
+            <SettingsButton
+              onClick={() => setIsCategorySettingsOpen(true)}
+            />
+          </div>
         </div>
       </header>
 
@@ -197,6 +225,12 @@ export function HomePage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <CategorySettingsDialog
+        open={isCategorySettingsOpen}
+        onOpenChange={setIsCategorySettingsOpen}
+        onCategoriesUpdated={() => setCategoriesVersion((prev) => prev + 1)}
+      />
 
       <main className="px-4 py-4">
         {isLoading ? (
@@ -223,7 +257,7 @@ export function HomePage() {
             <p className="text-muted-foreground text-sm">Dodaj prvi artikl i počni prodavati!</p>
           </div>
         ) : (
-          <ItemGrid items={filteredItems} onDeleteItem={setItemToDelete} />
+          <ItemGrid items={filteredItems} onDeleteItem={setItemToDelete} onMarkAsSold={setItemToSell} />
         )}
       </main>
 
@@ -249,6 +283,36 @@ export function HomePage() {
           </button>
         </div>
       </div>
+
+      {/* Mark as sold confirmation popup */}
+      {itemToSell && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-background rounded-lg p-4 mx-4 max-w-sm w-full shadow-lg">
+            <p className="text-center mb-4">
+              Označi "<span className="font-medium">{itemToSell.title}</span>" kao prodano?
+            </p>
+            <p className="text-sm text-muted-foreground text-center mb-4">
+              Artikl će biti obrisan, ali će prodaja biti zabilježena u analitici.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setItemToSell(null)}
+                disabled={isMarkingSold}
+                className="flex-1 py-2 border border-border rounded-lg font-medium hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                Odustani
+              </button>
+              <button
+                onClick={handleMarkAsSold}
+                disabled={isMarkingSold}
+                className="flex-1 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+              >
+                {isMarkingSold ? 'Spremanje...' : 'Prodano'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete confirmation popup */}
       {itemToDelete && (

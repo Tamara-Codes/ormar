@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Loader } from 'lucide-react'
 import { PhotoUpload } from '../components/PhotoUpload'
 import { ItemForm } from '../components/ItemForm'
 import { analyzeImage, createItem } from '../lib/api'
+import { getAllCategories } from '../lib/categories'
 import type { ItemFormData } from '../types'
 
 type Step = 'upload' | 'form'
@@ -16,6 +17,20 @@ export function AddItemPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [aiAnalyzed, setAiAnalyzed] = useState(false)
   const [error, setError] = useState('')
+  const [availableCategories, setAvailableCategories] = useState<Array<{ value: string; label: string }>>([])
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const data = await getAllCategories()
+        setAvailableCategories(data.filter((cat) => cat.value !== 'all'))
+      } catch (err) {
+        console.error('Failed to load categories:', err)
+      }
+    }
+
+    loadCategories()
+  }, [])
 
   const handleNext = async () => {
     if (photos.length === 0) {
@@ -29,7 +44,8 @@ export function AddItemPage() {
 
     try {
       // Analyze first photo
-      const analysis = await analyzeImage(photos[0])
+      const categoriesForAi = availableCategories.length > 0 ? availableCategories : undefined
+      const analysis = await analyzeImage(photos[0], categoriesForAi)
       setFormData({
         title: analysis.title,
         category: analysis.category,
@@ -75,7 +91,7 @@ export function AddItemPage() {
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm border-b border-border">
         <div className="px-4 py-3 flex items-center gap-3 cursor-pointer" onClick={handleBack}>
           <ArrowLeft className="w-6 h-6 text-gray-600" />
-          <h1 className="text-lg font-bold">Nova objava</h1>
+          <h1 className="text-lg font-bold">Novi artikal</h1>
         </div>
       </header>
 

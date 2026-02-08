@@ -5,7 +5,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select'
-import { CATEGORY_LABELS, type Category } from '../types'
+import { useEffect, useState } from 'react'
+import { getAllCategories } from '../lib/categories'
+import type { Category } from '../types'
 
 interface CategoryDropdownProps {
   selected: Category | 'all'
@@ -13,16 +15,31 @@ interface CategoryDropdownProps {
 }
 
 export function CategoryDropdown({ selected, onChange }: CategoryDropdownProps) {
+  const [categories, setCategories] = useState<Array<{ value: string; label: string }>>([])
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const data = await getAllCategories()
+        setCategories(data)
+      } catch (err) {
+        console.error('Failed to load categories:', err)
+        setCategories([{ value: 'all', label: 'Sve kategorije' }])
+      }
+    }
+
+    loadCategories()
+  }, [])
+
   return (
     <Select value={selected} onValueChange={onChange}>
       <SelectTrigger>
         <SelectValue placeholder="Sve kategorije" />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="all">Sve kategorije</SelectItem>
-        {(Object.keys(CATEGORY_LABELS) as Category[]).map((cat) => (
-          <SelectItem key={cat} value={cat}>
-            {CATEGORY_LABELS[cat]}
+        {(categories.length > 0 ? categories : [{ value: 'all', label: 'Sve kategorije' }]).map((category) => (
+          <SelectItem key={category.value} value={category.value}>
+            {category.label}
           </SelectItem>
         ))}
       </SelectContent>

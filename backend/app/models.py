@@ -52,6 +52,7 @@ class Post(PostCreate):
 
 class GenerateDescriptionRequest(BaseModel):
     items: list[dict]
+    group_rules: Optional[str] = None
 
 
 class PublicationCreate(BaseModel):

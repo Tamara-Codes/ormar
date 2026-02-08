@@ -258,9 +258,13 @@ export async function savePost(
   description?: string,
   collageUrl?: string
 ): Promise<Post> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
   const { data, error } = await supabase
     .from('posts')
     .insert({
+      user_id: user.id,
       item_ids: itemIds,
       description: description || null,
       collage_url: collageUrl || null,
@@ -269,6 +273,29 @@ export async function savePost(
     .single()
 
   if (error) throw new Error(`Failed to save post: ${error.message}`)
+  return data
+}
+
+export async function updatePost(
+  postId: string,
+  updates: { itemIds?: string[]; description?: string | null; collageUrl?: string | null }
+): Promise<Post> {
+  const updateData: Record<string, unknown> = {
+    updated_at: new Date().toISOString(),
+  }
+
+  if (updates.itemIds !== undefined) updateData.item_ids = updates.itemIds
+  if (updates.description !== undefined) updateData.description = updates.description
+  if (updates.collageUrl !== undefined) updateData.collage_url = updates.collageUrl
+
+  const { data, error } = await supabase
+    .from('posts')
+    .update(updateData)
+    .eq('id', postId)
+    .select()
+    .single()
+
+  if (error) throw new Error(`Failed to update post: ${error.message}`)
   return data
 }
 
@@ -289,9 +316,13 @@ export async function createPublication(
   description?: string,
   collageUrl?: string
 ): Promise<Publication> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
   const { data, error } = await supabase
     .from('publications')
     .insert({
+      user_id: user.id,
       post_id: postId || null,
       item_ids: itemIds,
       fb_page_name: fbPageName,
@@ -310,7 +341,8 @@ export async function uploadCollage(collageBlob: Blob): Promise<string> {
   if (!user) throw new Error('Not authenticated')
 
   const timestamp = Date.now()
-  const filePath = `collages/${user.id}/${timestamp}.jpg`
+  // Keep auth.uid() as the first folder segment to satisfy storage RLS policy.
+  const filePath = `${user.id}/collages/${timestamp}.jpg`
 
   const { error: uploadError } = await supabase.storage
     .from('item-images')
@@ -329,21 +361,48 @@ export async function uploadCollage(collageBlob: Blob): Promise<string> {
 // BACKEND CALLS (for AI - need secret API keys)
 // ============================================
 
-export async function analyzeImage(imageFile: File): Promise<AIAnalysis> {
+export async function analyzeImage(
+  imageFile: File,
+  categories?: Array<{ value: string; label: string }>,
+): Promise<AIAnalysis> {
   const formData = new FormData()
   formData.append('image', imageFile)
-
-  const response = await fetch(`${API_BASE}/api/analyze-image`, {
-    method: 'POST',
-    body: formData,
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`AI analysis failed: ${error}`)
+  if (categories && categories.length > 0) {
+    formData.append('categories', JSON.stringify(categories))
   }
 
-  return response.json()
+  const url = `${API_BASE}/api/analyze-image`
+  console.log('[ANALYZE-IMAGE] Sending request to:', url)
+  console.log('[ANALYZE-IMAGE] API_BASE:', API_BASE)
+  console.log('[ANALYZE-IMAGE] File:', imageFile.name, imageFile.type, `${(imageFile.size / 1024).toFixed(2)}KB`)
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      // Don't set Content-Type header - browser will set it automatically with boundary
+    })
+
+    console.log('[ANALYZE-IMAGE] Response status:', response.status, response.statusText)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[ANALYZE-IMAGE] Error response:', response.status, errorText)
+      throw new Error(`AI analysis failed (${response.status}): ${errorText}`)
+    }
+
+    const data = await response.json()
+    console.log('[ANALYZE-IMAGE] Success:', data)
+    return data
+  } catch (error) {
+    console.error('[ANALYZE-IMAGE] Full error:', error)
+    if (error instanceof TypeError) {
+      if (error.message.includes('fetch') || error.message.includes('Failed to fetch')) {
+        throw new Error(`Cannot connect to backend at ${API_BASE}. Make sure the backend is running on port 8000.`)
+      }
+    }
+    throw error
+  }
 }
 
 export async function removeBackground(imageUrl: string): Promise<Blob> {
@@ -366,7 +425,7 @@ export async function removeBackground(imageUrl: string): Promise<Blob> {
   return response.blob()
 }
 
-export async function generatePostDescription(items: Item[]): Promise<string> {
+export async function generatePostDescription(items: Item[], groupRules?: string): Promise<string> {
   const response = await fetch(`${API_BASE}/api/generate-description`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -379,6 +438,7 @@ export async function generatePostDescription(items: Item[]): Promise<string> {
         price: item.price,
         category: item.category,
       })),
+      group_rules: groupRules || null,
     }),
   })
 

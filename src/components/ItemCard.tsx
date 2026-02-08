@@ -1,18 +1,24 @@
 import { useNavigate } from 'react-router-dom'
-import { Trash2 } from 'lucide-react'
+import { Trash2, CheckCircle } from 'lucide-react'
 import type { Item } from '../types'
 
 interface ItemCardProps {
   item: Item
   onDelete?: (item: Item) => void
+  onMarkAsSold?: (item: Item) => void
 }
 
-export function ItemCard({ item, onDelete }: ItemCardProps) {
+export function ItemCard({ item, onDelete, onMarkAsSold }: ItemCardProps) {
   const navigate = useNavigate()
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation()
     onDelete?.(item)
+  }
+
+  const handleMarkAsSold = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onMarkAsSold?.(item)
   }
 
   return (
@@ -43,10 +49,20 @@ export function ItemCard({ item, onDelete }: ItemCardProps) {
             </svg>
           </div>
         )}
+        {onMarkAsSold && (
+          <button
+            onClick={handleMarkAsSold}
+            className="absolute top-0.5 left-0.5 bg-green-500 hover:bg-green-600 text-white p-1 rounded"
+            title="Označi kao prodano"
+          >
+            <CheckCircle className="w-3 h-3" />
+          </button>
+        )}
         {onDelete && (
           <button
             onClick={handleDelete}
-            className="absolute top-0.5 left-0.5 bg-red-500 hover:bg-red-600 text-white p-1 rounded"
+            className="absolute top-0.5 right-0.5 bg-red-500 hover:bg-red-600 text-white p-1 rounded"
+            title="Obriši"
           >
             <Trash2 className="w-3 h-3" />
           </button>

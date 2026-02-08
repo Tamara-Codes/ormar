@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AlertCircle } from 'lucide-react'
 import {
   Select,
@@ -7,8 +7,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select'
-import type { ItemFormData, Condition, Material, Category } from '../types'
-import { CONDITION_LABELS, MATERIAL_LABELS, CATEGORY_LABELS } from '../types'
+import type { ItemFormData, Condition, Material } from '../types'
+import { getAllCategories } from '../lib/categories'
+import { getDefaultConditions, getDefaultMaterials } from '../lib/lookups'
 
 interface ItemFormProps {
   initialData?: Partial<ItemFormData>
@@ -20,7 +21,7 @@ export function ItemForm({ initialData, onSubmit, isLoading = false }: ItemFormP
   const [formData, setFormData] = useState<ItemFormData>({
     title: initialData?.title || '',
     description: '',
-    category: initialData?.category || 'odjeca',
+    category: initialData?.category || '',
     brand: initialData?.brand || '',
     size: initialData?.size || '',
     condition: initialData?.condition,
@@ -31,14 +32,97 @@ export function ItemForm({ initialData, onSubmit, isLoading = false }: ItemFormP
   })
 
   const [error, setError] = useState('')
+  const [categories, setCategories] = useState<Array<{ value: string; label: string }>>([])
+  const [isCategoriesLoading, setIsCategoriesLoading] = useState(true)
+  const [categoriesError, setCategoriesError] = useState('')
+  const [conditions, setConditions] = useState<Array<{ value: string; label: string }>>([])
+  const [materials, setMaterials] = useState<Array<{ value: string; label: string }>>([])
+  const [lookupsError, setLookupsError] = useState('')
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      setIsCategoriesLoading(true)
+      try {
+        const data = await getAllCategories()
+        const filtered = data.filter((cat) => cat.value !== 'all')
+        setCategories(filtered)
+        setCategoriesError('')
+        setFormData((prev) => {
+          if (prev.category && filtered.some((cat) => cat.value === prev.category)) {
+            return prev
+          }
+          const nextCategory = filtered[0]?.value || ''
+          if (nextCategory && prev.category !== nextCategory) {
+            return { ...prev, category: nextCategory }
+          }
+          if (!nextCategory && prev.category) {
+            return { ...prev, category: '' }
+          }
+          return prev
+        })
+      } catch (err) {
+        console.error('Failed to load categories:', err)
+        setCategories([])
+        setCategoriesError('Nije moguće učitati kategorije')
+      } finally {
+        setIsCategoriesLoading(false)
+      }
+    }
+
+    loadCategories()
+  }, [])
+
+  useEffect(() => {
+    const loadLookups = async () => {
+      try {
+        const [conditionsData, materialsData] = await Promise.all([
+          getDefaultConditions(),
+          getDefaultMaterials(),
+        ])
+        setConditions(conditionsData)
+        setMaterials(materialsData)
+        setLookupsError('')
+        setFormData((prev) => {
+          const nextCondition = prev.condition || conditionsData[0]?.value
+          return {
+            ...prev,
+            condition: nextCondition,
+          }
+        })
+      } catch (err) {
+        console.error('Failed to load lookups:', err)
+        setConditions([])
+        setMaterials([])
+        setLookupsError('Nije moguće učitati stanja i materijale')
+      }
+    }
+
+    void loadLookups()
+  }, [])
+
+  const isFieldRequired = (category: string) => {
+    // Require size/brand for clothing and shoes only
+    const requiredCategories = new Set(['odjeca', 'obuca'])
+    return requiredCategories.has(category)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
 
     // Validate required fields
-    if (!formData.title || !formData.category || !formData.price || !formData.size || !formData.brand) {
+    if (!formData.title || !formData.category || !formData.price) {
       setError('Molimo popunite sva obavezna polja')
+      return
+    }
+
+    if (isFieldRequired(formData.category) && !formData.size) {
+      setError('Molimo unesite veličinu')
+      return
+    }
+
+    if (isFieldRequired(formData.category) && !formData.brand) {
+      setError('Molimo unesite brend')
       return
     }
 
@@ -91,17 +175,31 @@ export function ItemForm({ initialData, onSubmit, isLoading = false }: ItemFormP
             </label>
             <Select
               value={formData.category}
-              onValueChange={(value) => setFormData({ ...formData, category: value as Category })}
+              onValueChange={(value) => setFormData({ ...formData, category: value })}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                  <SelectItem key={key} value={key}>
-                    {label}
+                {isCategoriesLoading ? (
+                  <SelectItem value={formData.category || 'loading'} disabled>
+                    Učitavanje...
                   </SelectItem>
-                ))}
+                ) : categoriesError ? (
+                  <SelectItem value="categories-error" disabled>
+                    {categoriesError}
+                  </SelectItem>
+                ) : categories.length === 0 ? (
+                  <SelectItem value="no-categories" disabled>
+                    Nema dostupnih kategorija
+                  </SelectItem>
+                ) : (
+                  categories.map((category) => (
+                    <SelectItem key={category.value} value={category.value}>
+                      {category.label}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -118,11 +216,21 @@ export function ItemForm({ initialData, onSubmit, isLoading = false }: ItemFormP
                 <SelectValue placeholder="Odaberite..." />
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(CONDITION_LABELS).map(([key, label]) => (
-                  <SelectItem key={key} value={key}>
-                    {label}
+                {lookupsError ? (
+                  <SelectItem value="lookups-error" disabled>
+                    {lookupsError}
                   </SelectItem>
-                ))}
+                ) : conditions.length === 0 ? (
+                  <SelectItem value="no-conditions" disabled>
+                    Nema dostupnih stanja
+                  </SelectItem>
+                ) : (
+                  conditions.map((condition) => (
+                    <SelectItem key={condition.value} value={condition.value}>
+                      {condition.label}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>
@@ -147,11 +255,11 @@ export function ItemForm({ initialData, onSubmit, isLoading = false }: ItemFormP
 
           <div>
             <label className="block text-sm font-medium mb-1">
-              Veličina <span className="text-primary">*</span>
+              Veličina {isFieldRequired(formData.category) && <span className="text-primary">*</span>}
             </label>
             <input
               type="text"
-              required
+              required={isFieldRequired(formData.category)}
               value={formData.size || ''}
               onChange={(e) => setFormData({ ...formData, size: e.target.value || undefined })}
               className="w-full px-3 py-2 border border-border bg-background rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground"
@@ -163,11 +271,11 @@ export function ItemForm({ initialData, onSubmit, isLoading = false }: ItemFormP
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">
-              Brend <span className="text-primary">*</span>
+              Marka {isFieldRequired(formData.category) && <span className="text-primary">*</span>}
             </label>
             <input
               type="text"
-              required
+              required={isFieldRequired(formData.category)}
               value={formData.brand || ''}
               onChange={(e) => setFormData({ ...formData, brand: e.target.value || undefined })}
               className="w-full px-3 py-2 border border-border bg-background rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground"
@@ -197,11 +305,21 @@ export function ItemForm({ initialData, onSubmit, isLoading = false }: ItemFormP
               <SelectValue placeholder="Odaberite materijal..." />
             </SelectTrigger>
             <SelectContent>
-              {Object.entries(MATERIAL_LABELS).map(([key, label]) => (
-                <SelectItem key={key} value={key}>
-                  {label}
+              {lookupsError ? (
+                <SelectItem value="lookups-error" disabled>
+                  {lookupsError}
                 </SelectItem>
-              ))}
+              ) : materials.length === 0 ? (
+                <SelectItem value="no-materials" disabled>
+                  Nema dostupnih materijala
+                </SelectItem>
+              ) : (
+                materials.map((material) => (
+                  <SelectItem key={material.value} value={material.value}>
+                    {material.label}
+                  </SelectItem>
+                ))
+              )}
             </SelectContent>
           </Select>
         </div>

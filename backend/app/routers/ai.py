@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from fastapi.responses import Response
 from pydantic import BaseModel
 from app.services.gemini import analyze_image, generate_post_description
@@ -12,6 +12,7 @@ import tempfile
 import logging
 import uuid
 from datetime import datetime
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,10 @@ router = APIRouter(prefix="/api", tags=["ai"])
 
 
 @router.post("/analyze-image", response_model=AIAnalysis)
-async def analyze_image_endpoint(image: UploadFile = File(...)) -> AIAnalysis:
+async def analyze_image_endpoint(
+    image: UploadFile = File(...),
+    categories: str | None = Form(None),
+) -> AIAnalysis:
     """Receive photo, call Gemini, return analysis."""
     logger.info(f"[ANALYZE-IMAGE] Received request for file: {image.filename}")
     logger.info(f"[ANALYZE-IMAGE] Content type: {image.content_type}")
@@ -52,7 +56,13 @@ async def analyze_image_endpoint(image: UploadFile = File(...)) -> AIAnalysis:
     try:
         # Analyze with Gemini
         logger.info(f"[ANALYZE-IMAGE] Calling Gemini API...")
-        analysis = await analyze_image(tmp_path)
+        parsed_categories = None
+        if categories:
+            try:
+                parsed_categories = json.loads(categories)
+            except Exception as e:
+                logger.error(f"[ANALYZE-IMAGE] Invalid categories payload: {e}")
+        analysis = await analyze_image(tmp_path, parsed_categories)
         logger.info(f"[ANALYZE-IMAGE] Analysis complete: title='{analysis.title}', category='{analysis.category}'")
         return analysis
     except Exception as e:
@@ -134,12 +144,14 @@ async def remove_background_endpoint(image: UploadFile = File(...)) -> Response:
 async def generate_description_endpoint(request: GenerateDescriptionRequest) -> dict:
     """Generate a post description using Gemini based on selected items."""
     logger.info(f"[GENERATE-DESC] Received request with {len(request.items)} items")
+    if request.group_rules:
+        logger.info(f"[GENERATE-DESC] Group rules provided: {request.group_rules[:100]}...")
 
     if len(request.items) == 0:
         raise HTTPException(status_code=400, detail="At least one item is required")
 
     try:
-        description = await generate_post_description(request.items)
+        description = await generate_post_description(request.items, request.group_rules)
         return {"description": description}
     except Exception as e:
         logger.error(f"[GENERATE-DESC] Error: {str(e)}", exc_info=True)

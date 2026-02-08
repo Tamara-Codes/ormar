@@ -9,12 +9,9 @@ import {
   SelectValue,
 } from '../components/ui/select'
 import { getItem, updateItem, removeBackground, updateItemImage, deleteItemImage, addItemImages } from '../lib/api'
-import type { Item, Category, Condition, Material } from '../types'
-import {
-  CATEGORY_LABELS,
-  CONDITION_LABELS,
-  MATERIAL_LABELS,
-} from '../types'
+import { getAllCategories } from '../lib/categories'
+import type { Item, Condition, Material } from '../types'
+import { getDefaultConditions, getDefaultMaterials } from '../lib/lookups'
 
 export function ItemDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -30,11 +27,16 @@ export function ItemDetailPage() {
   const [isAddingImages, setIsAddingImages] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [categories, setCategories] = useState<Array<{ value: string; label: string }>>([])
+  const [categoriesError, setCategoriesError] = useState('')
+  const [conditions, setConditions] = useState<Array<{ value: string; label: string }>>([])
+  const [materials, setMaterials] = useState<Array<{ value: string; label: string }>>([])
+  const [lookupsError, setLookupsError] = useState('')
 
   // Edit form state
   const [editData, setEditData] = useState({
     title: '',
-    category: '' as Category,
+    category: '',
     brand: '',
     size: '',
     condition: '' as Condition,
@@ -68,6 +70,43 @@ export function ItemDetailPage() {
     }
     fetchItem()
   }, [id])
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const data = await getAllCategories()
+        setCategories(data.filter((cat) => cat.value !== 'all'))
+        setCategoriesError('')
+      } catch (err) {
+        console.error('Failed to load categories:', err)
+        setCategories([])
+        setCategoriesError('Nije moguće učitati kategorije')
+      }
+    }
+
+    loadCategories()
+  }, [])
+
+  useEffect(() => {
+    const loadLookups = async () => {
+      try {
+        const [conditionsData, materialsData] = await Promise.all([
+          getDefaultConditions(),
+          getDefaultMaterials(),
+        ])
+        setConditions(conditionsData)
+        setMaterials(materialsData)
+        setLookupsError('')
+      } catch (err) {
+        console.error('Failed to load conditions/materials:', err)
+        setConditions([])
+        setMaterials([])
+        setLookupsError('Nije moguće učitati stanja i materijale')
+      }
+    }
+
+    void loadLookups()
+  }, [])
 
   const handleSave = async () => {
     if (!id) return
@@ -363,17 +402,27 @@ export function ItemDetailPage() {
                   </label>
                   <Select
                     value={editData.category}
-                    onValueChange={(value) => setEditData({ ...editData, category: value as Category })}
+                    onValueChange={(value) => setEditData({ ...editData, category: value })}
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                        <SelectItem key={key} value={key}>
-                          {label}
+                      {categories.length > 0 ? (
+                        categories.map((category) => (
+                          <SelectItem key={category.value} value={category.value}>
+                            {category.label}
+                          </SelectItem>
+                        ))
+                      ) : categoriesError ? (
+                        <SelectItem value="categories-error" disabled>
+                          {categoriesError}
                         </SelectItem>
-                      ))}
+                      ) : (
+                        <SelectItem value={item.category} disabled>
+                          {item.category}
+                        </SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -390,11 +439,21 @@ export function ItemDetailPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(CONDITION_LABELS).map(([key, label]) => (
-                        <SelectItem key={key} value={key}>
-                          {label}
+                      {lookupsError ? (
+                        <SelectItem value="lookups-error" disabled>
+                          {lookupsError}
                         </SelectItem>
-                      ))}
+                      ) : conditions.length === 0 ? (
+                        <SelectItem value={editData.condition || item.condition} disabled>
+                          {editData.condition || item.condition}
+                        </SelectItem>
+                      ) : (
+                        conditions.map((condition) => (
+                          <SelectItem key={condition.value} value={condition.value}>
+                            {condition.label}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -431,7 +490,7 @@ export function ItemDetailPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium mb-1">
-                    Brend <span className="text-primary">*</span>
+                    Marka <span className="text-primary">*</span>
                   </label>
                   <input
                     type="text"
@@ -462,11 +521,21 @@ export function ItemDetailPage() {
                     <SelectValue placeholder="Odaberite materijal..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.entries(MATERIAL_LABELS).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>
-                        {label}
+                    {lookupsError ? (
+                      <SelectItem value="lookups-error" disabled>
+                        {lookupsError}
                       </SelectItem>
-                    ))}
+                    ) : materials.length === 0 ? (
+                      <SelectItem value={editData.material || ''} disabled>
+                        {editData.material || '-'}
+                      </SelectItem>
+                    ) : (
+                      materials.map((material) => (
+                        <SelectItem key={material.value} value={material.value}>
+                          {material.label}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -495,14 +564,19 @@ export function ItemDetailPage() {
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Kategorija</span>
-                  <span className="font-medium">{CATEGORY_LABELS[item.category]}</span>
+                  <span className="font-medium">
+                    {categories.find((cat) => cat.value === item.category)?.label
+                      ?? item.category}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Stanje</span>
-                  <span className="font-medium">{CONDITION_LABELS[item.condition]}</span>
+                  <span className="font-medium">
+                    {conditions.find((condition) => condition.value === item.condition)?.label ?? item.condition}
+                  </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Brend</span>
+                  <span className="text-muted-foreground">Marka</span>
                   <span className="font-medium">{item.brand || '-'}</span>
                 </div>
                 <div className="flex justify-between">
@@ -511,7 +585,11 @@ export function ItemDetailPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Materijal</span>
-                  <span className="font-medium">{item.material ? MATERIAL_LABELS[item.material] : '-'}</span>
+                  <span className="font-medium">
+                    {item.material
+                      ? materials.find((material) => material.value === item.material)?.label ?? item.material
+                      : '-'}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Boja</span>
