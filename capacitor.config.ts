@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.ormar.mycloset',
-  appName: 'My Closet',
+  appName: 'Komodus',
   webDir: 'dist',
   server: {
     androidScheme: 'https',
